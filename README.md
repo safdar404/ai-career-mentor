@@ -66,6 +66,16 @@ A seventh agent looks after the human side of interviews: nerves, fear of speaki
 - **💛 Confidence Coach page:** mood check-in, an animated 60-second breathing guide, confidence/calm/fear trends, a personal growth plan with a 5-step speaking ladder, a toolkit, and a private chat with your mentor.
 - It is a coach, not a therapist: readings are estimates, never diagnoses, and it points to real support if someone seems to be in distress. You can switch it off in ⚙️ Settings or the call settings.
 
+### 🤖 The 3D AI agent
+
+In 🎙️ voice and 🎥 video calls (and on the welcome and Confidence Coach screens) the interviewer is a live 3D robot rendered with Three.js, built from primitives so there is nothing to download except the pinned library.
+
+- **Speaks:** the mouth equaliser and chest LEDs move with each spoken word, and it gestures while it talks.
+- **Listens:** head tilts toward you, ear rings and chest LEDs react to your microphone level.
+- **Thinks:** a scanning sweep, eyes look around, hand to chin while your answer is reviewed; it nods when you send.
+- **Feels:** it waves hello, smiles with warm eyes after a nervous answer (encouraging), and lights up gold after a strong one (celebrate).
+- Blinks, breathes, follows your pointer, floats over a holographic base with particles. Falls back to the animated SVG avatar if WebGL is unavailable, and calms its motion for people who prefer reduced motion.
+
 ### 💬 🎙️ 🎥 Conversation modes
 
 Live interviews, the HR simulator and the English Lab each have a one-click mode switch:
@@ -134,10 +144,11 @@ videocall.py        Voice/video call stage: camera, speech recognition, snapshot
 history.py          Conversation History page
 prosody.py          Voice and language signals (pace, pauses, pitch, fillers, hedges, self-talk)
 wellbeing.py        Confidence Coach page, mentor card, check-in, breathing guide
+robot3d.py          3D robotic agent (Three.js): lip-sync, gestures, moods, hologram base
 components.py       Scorecard, feedback views, answer input, interview runner
 dashboard.py, interview.py, english.py, coding.py, academy.py, projects.py,
 gaps.py, roadmap.py, reports.py, settings_page.py     One module per page
-test_*.py, fake_provider.py                           63 tests (no API calls)
+test_*.py, fake_provider.py                           65 tests (no API calls)
 .streamlit/config.toml                                Dark theme
 ```
 
@@ -166,7 +177,7 @@ To add real-time voice later, implement a new provider beside `voice.py`. For ph
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q   # 63 tests
+python -m pytest -q   # 65 tests
 ```
 
 The tests use a deterministic fake model, so they need no API keys and cost nothing. They cover:
@@ -254,7 +265,7 @@ Endpoints: `GET /health` (public), `GET /users`, `GET /users/{id}/stats`, `GET /
 - **Pronunciation and speaking speed are not measured.** Transcription returns text only. "Words to practise" are suggestions based on your wording. Pitch length is estimated from word count at about 130 words per minute.
 - **Code is not executed.** Running untrusted code safely needs a sandbox. The review reasons about your code statically and says so; run the test cases yourself.
 - **AI scores are judgements, not measurements.** They are consistent enough to track progress, but they vary between runs and between providers. Look at trends over many answers, not single scores.
-- **Verified in development:** all 63 automated tests pass and the server boots. The voice/video stage was also driven end to end in headless Chrome with a simulated camera. **Not yet verified:** live calls with real API keys, the Docker build, PostgreSQL, and real-microphone speech recognition. Run the manual checklist above after adding your key.
+- **Verified in development:** all 65 automated tests pass and the server boots. The voice/video stage was also driven end to end in headless Chrome with a simulated camera. **Not yet verified:** live calls with real API keys, the Docker build, PostgreSQL, and real-microphone speech recognition. Run the manual checklist above after adding your key.
 
 ---
 

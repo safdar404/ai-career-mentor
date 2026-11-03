@@ -12,7 +12,8 @@ from orchestrator import JOB_ROLES
 import components
 import keys
 import academy, coding, dashboard, english, gaps, history, interview, projects, reports, roadmap, settings_page, wellbeing
-from avatar import avatar_svg, brand_html
+from avatar import brand_html
+from robot3d import robot
 from theme import CSS
 
 log = get_logger("app")
@@ -59,10 +60,15 @@ def _sign_in(user_id: int) -> None:
 
 
 def onboarding() -> None:
-    st.markdown(f'<div class="am-hero">{avatar_svg(112, "speaking", "AI Career Mentor")}<div>'
-                '<h1>AI Career Mentor</h1><p>Your personal AI interviewer, communication coach and career '
-                'development partner. Practise by 💬 chat, 🎙️ voice call or 🎥 video call.</p></div></div>',
-                unsafe_allow_html=True)
+    with st.container(key="hero"):
+        c1, c2 = st.columns([2, 3], vertical_alignment="center")
+        with c1:
+            robot("hero-bot", height=300, wave=True, bust=True)
+        with c2:
+            st.markdown('<div class="am-hero-text"><span class="am-kicker">🤖 AI agent · online</span>'
+                        '<h1>AI Career Mentor</h1><p>Your personal AI interviewer, communication coach and career '
+                        'development partner. Practise by 💬 chat, 🎙️ voice call or 🎥 video call with a live 3D '
+                        'AI agent that listens, speaks and coaches you.</p></div>', unsafe_allow_html=True)
     users = db.list_users()
     left, right = st.columns([3, 2], gap="large")
     with left:

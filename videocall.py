@@ -19,66 +19,105 @@ import binascii
 import streamlit as st
 
 from avatar import AVATAR_CSS, avatar_svg
+from robot3d import ROBOT_LIB
 from voice import ACCENT_LANG
 
 _CSS = AVATAR_CSS + """
 :host { display:block; }
 .vc { font-family:'IBM Plex Sans', system-ui, sans-serif; color:#E7EBF7; }
-.vc-grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-.tile { position:relative; border-radius:16px; overflow:hidden; min-height:250px; border:1px solid #2A3566;
-  background: radial-gradient(420px 260px at 50% 35%, rgba(139,92,246,.22), transparent 70%), #0B1230; }
-.tile.ai { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:18px 14px 52px; }
-.tile.ai.speaking { border-color:#8B5CF6; box-shadow: 0 0 0 1px rgba(139,92,246,.5), 0 0 28px rgba(139,92,246,.25); }
-.tile.me.live { border-color:#22D3EE; box-shadow: 0 0 0 1px rgba(34,211,238,.5), 0 0 28px rgba(34,211,238,.18); }
-.tile video { width:100%; height:100%; min-height:250px; object-fit:cover; transform: scaleX(-1); display:block; background:#070C1C; }
+.vc-grid { display:grid; grid-template-columns: 1.25fr 1fr; gap:16px; perspective: 1400px; padding: 6px 4px 10px; }
+.tile { position:relative; border-radius:22px; overflow:hidden; min-height:380px; transform-style: preserve-3d;
+  border:1px solid rgba(139,92,246,.35);
+  background: radial-gradient(70% 60% at 50% 35%, rgba(91,124,250,.28), transparent 70%),
+              radial-gradient(50% 40% at 85% 100%, rgba(244,114,182,.14), transparent 70%), #070C1C;
+  box-shadow: 0 40px 70px -30px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.03) inset, 0 1px 0 rgba(255,255,255,.08) inset;
+  transition: transform .6s cubic-bezier(.2,.8,.2,1), box-shadow .3s, border-color .3s; }
+.tile.ai { transform: rotateY(5deg) translateZ(0); }
+.tile.me { transform: rotateY(-5deg) translateZ(0); }
+.tile:hover { transform: rotateY(0) translateZ(12px); }
+.tile.ai.speaking { border-color:#8B5CF6; box-shadow: 0 40px 70px -30px rgba(0,0,0,.85), 0 0 0 1px rgba(139,92,246,.55), 0 0 46px rgba(139,92,246,.35); }
+.tile.ai.listening { border-color:#2DD4BF; box-shadow: 0 40px 70px -30px rgba(0,0,0,.85), 0 0 0 1px rgba(45,212,191,.5), 0 0 40px rgba(45,212,191,.25); }
+.tile.me.live { border-color:#22D3EE; box-shadow: 0 40px 70px -30px rgba(0,0,0,.85), 0 0 0 1px rgba(34,211,238,.5), 0 0 40px rgba(34,211,238,.22); }
+.stage3d { position:absolute; inset:0; }
+.stage3d canvas { position:absolute; inset:0; width:100%; height:100%; display:block; opacity:0; transition: opacity .8s; }
+.stage3d.ready canvas { opacity:1; }
+.stage3d .fallback { position:absolute; inset:0 0 110px; display:flex; align-items:center; justify-content:center; transition: opacity .5s; }
+.stage3d.ready .fallback { opacity:0; pointer-events:none; }
+.scan { position:absolute; inset:0; pointer-events:none; opacity:.45;
+  background: repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px); }
+.sweep { position:absolute; left:0; right:0; height:70px; top:-70px; pointer-events:none; opacity:0;
+  background: linear-gradient(180deg, transparent, rgba(34,211,238,.10), transparent); }
+.tile.ai.thinking .sweep { opacity:1; animation: vc-sweep 1.8s linear infinite; }
+.hud { position:absolute; width:18px; height:18px; border-color: rgba(34,211,238,.7); border-style: solid; pointer-events:none; }
+.hud.tl { top:10px; left:10px; border-width:2px 0 0 2px; border-radius:6px 0 0 0; }
+.hud.tr { top:10px; right:10px; border-width:2px 2px 0 0; border-radius:0 6px 0 0; }
+.hud.bl { bottom:10px; left:10px; border-width:0 0 2px 2px; border-radius:0 0 0 6px; }
+.hud.br { bottom:10px; right:10px; border-width:0 2px 2px 0; border-radius:0 0 6px 0; }
+.glass { position:absolute; left:14px; right:14px; bottom:14px; padding:12px 16px 10px; border-radius:16px;
+  background: linear-gradient(180deg, rgba(20,29,61,.55), rgba(7,12,28,.78)); backdrop-filter: blur(10px) saturate(1.3);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3); border:1px solid rgba(255,255,255,.08); }
+.tile video { width:100%; height:100%; min-height:380px; object-fit:cover; transform: scaleX(-1); display:block; background:#070C1C; }
 .camoff { position:absolute; inset:0; display:flex; flex-direction:column; gap:8px; align-items:center; justify-content:center;
   color:#A3ACCB; font-size:14px; text-align:center; padding:16px; }
-.camoff .big { font-size:42px; }
-.name { position:absolute; left:10px; bottom:10px; background:rgba(7,12,28,.72); backdrop-filter: blur(6px);
-  padding:4px 10px; border-radius:999px; font-size:12.5px; border:1px solid #2A3566; }
-.pill { position:absolute; right:10px; top:10px; font-size:12px; padding:3px 10px; border-radius:999px;
-  background:rgba(7,12,28,.72); border:1px solid #2A3566; color:#C9D1EA; }
+.camoff .big { font-size:46px; filter: drop-shadow(0 0 18px rgba(34,211,238,.45)); }
+.name { position:absolute; left:16px; top:14px; background:rgba(7,12,28,.6); backdrop-filter: blur(6px);
+  padding:4px 11px; border-radius:999px; font-size:12px; border:1px solid rgba(255,255,255,.1); letter-spacing:.02em; }
+.tile.me .name { top:auto; bottom:16px; }
+.pill { position:absolute; right:16px; top:14px; font-size:12px; padding:4px 11px; border-radius:999px;
+  background:rgba(7,12,28,.6); border:1px solid rgba(255,255,255,.1); color:#C9D1EA; backdrop-filter: blur(6px); }
 .pill.rec { border-color:#F472B6; color:#FBCFE8; }
-.pill.rec::before { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; background:#F43F5E;
+.pill.rec::before, .live-dot::before { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; background:#F43F5E;
   margin-right:6px; animation: vc-blink 1s infinite; vertical-align:middle; }
-.clock { position:absolute; left:10px; top:10px; font-size:12px; color:#A3ACCB; font-variant-numeric: tabular-nums; }
-.meter { position:absolute; right:10px; bottom:12px; width:90px; height:6px; border-radius:99px; background:#1C2550; overflow:hidden; }
+.clock { position:absolute; right:18px; top:46px; font-size:11.5px; color:#A3ACCB;
+  font-variant-numeric: tabular-nums; letter-spacing:.12em; text-transform:uppercase; }
+.meter { position:absolute; right:16px; bottom:22px; width:110px; height:6px; border-radius:99px; background:rgba(28,37,80,.8); overflow:hidden; }
 .meter i { display:block; height:100%; width:0%; background:linear-gradient(90deg,#22D3EE,#A78BFA,#F472B6); transition: width .08s; }
-.caption { margin-top:12px; max-width:44ch; text-align:center; font-size:15px; line-height:1.45; color:#E7EBF7; }
-.status { margin-top:6px; font-size:12.5px; color:#A3ACCB; min-height:1em; }
-.bar { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin:12px 0 8px; }
-button { font: inherit; font-size:14px; border-radius:999px; padding:8px 16px; cursor:pointer; color:#E7EBF7;
-  background:#18224A; border:1px solid #33407A; transition: background .15s, border-color .15s, transform .05s; }
-button:hover { background:#222E62; border-color:#8B5CF6; }
+.caption { max-width:60ch; margin:0 auto; text-align:center; font-size:15.5px; line-height:1.45; color:#F1F4FF; }
+.status { margin-top:6px; text-align:center; font-size:11.5px; color:#9BE7FF; min-height:1em; letter-spacing:.08em; text-transform:uppercase; }
+.bar { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin:14px 0 8px; }
+button { font: inherit; font-size:14px; border-radius:999px; padding:9px 17px; cursor:pointer; color:#E7EBF7;
+  background: linear-gradient(180deg, #1B2654, #141D40); border:1px solid #33407A;
+  box-shadow: 0 6px 16px -8px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.06) inset;
+  transition: background .15s, border-color .15s, transform .08s, box-shadow .2s; }
+button:hover { border-color:#8B5CF6; box-shadow: 0 8px 22px -8px rgba(139,92,246,.6), 0 1px 0 rgba(255,255,255,.08) inset; transform: translateY(-1px); }
 button:active { transform: translateY(1px); }
 button:focus-visible { outline:2px solid #22D3EE; outline-offset:2px; }
-button.primary { background: linear-gradient(90deg,#8B5CF6,#5B7CFA); border:none; font-weight:600; }
-button.danger { border-color:#F472B6; }
-button[disabled] { opacity:.45; cursor:not-allowed; }
-textarea { width:100%; box-sizing:border-box; min-height:96px; resize:vertical; border-radius:12px; padding:10px 12px;
-  background:#0B1230; color:#E7EBF7; border:1px solid #2A3566; font: inherit; font-size:15px; line-height:1.5; }
-textarea:focus { outline:none; border-color:#8B5CF6; }
+button.primary { background: linear-gradient(90deg,#8B5CF6,#5B7CFA 60%,#22D3EE); border:none; font-weight:600;
+  box-shadow: 0 10px 26px -10px rgba(91,124,250,.8), 0 1px 0 rgba(255,255,255,.25) inset; }
+button[disabled] { opacity:.45; cursor:not-allowed; transform:none; }
+textarea { width:100%; box-sizing:border-box; min-height:96px; resize:vertical; border-radius:14px; padding:12px 14px;
+  background: rgba(11,18,48,.85); color:#E7EBF7; border:1px solid #2A3566; font: inherit; font-size:15px; line-height:1.5;
+  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset; }
+textarea:focus { outline:none; border-color:#8B5CF6; box-shadow: 0 0 0 3px rgba(139,92,246,.25); }
 .hint { font-size:12px; color:#A3ACCB; margin-top:6px; }
 .interim { color:#7F8AB0; font-style:italic; }
 @keyframes vc-blink { 50% { opacity:.2; } }
-@media (max-width: 720px) { .vc-grid { grid-template-columns: 1fr; } .tile, .tile video { min-height:200px; } }
-@media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+@keyframes vc-sweep { from { top:-70px; } to { top:100%; } }
+@media (max-width: 760px) { .vc-grid { grid-template-columns: 1fr; perspective:none; }
+  .tile, .tile.ai, .tile.me, .tile:hover { transform:none; } .tile, .tile video { min-height:300px; } }
+@media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } .tile { transform:none !important; } }
 """
 
 _HTML = f"""
 <div class="vc">
   <div class="vc-grid">
     <div class="tile ai" id="aiTile">
-      <span class="clock" id="clock">00:00</span>
-      <span class="pill" id="aiPill">🤖 AI interviewer</span>
-      {avatar_svg(150, "idle", "AI interviewer")}
-      <div class="caption" id="caption" aria-live="polite"></div>
-      <div class="status" id="status"></div>
-      <span class="name" id="aiName">Mentor</span>
+      <div class="stage3d" id="stage3d"><canvas id="bot3d" aria-label="3D AI interviewer"></canvas>
+        <div class="fallback">{avatar_svg(170, "idle", "AI interviewer")}</div></div>
+      <div class="scan"></div><div class="sweep"></div>
+      <span class="hud tl"></span><span class="hud tr"></span><span class="hud bl"></span><span class="hud br"></span>
+      <span class="name" id="aiName">🤖 Mentor</span>
+      <span class="clock live-dot" id="clock">00:00</span>
+      <span class="pill" id="aiPill">AI agent · online</span>
+      <div class="glass">
+        <div class="caption" id="caption" aria-live="polite"></div>
+        <div class="status" id="status"></div>
+      </div>
     </div>
     <div class="tile me" id="meTile">
       <video id="self" autoplay playsinline muted></video>
       <div class="camoff" id="camoff"><div class="big">🎙️</div><div id="camoffText">Audio call. Your camera is off.</div></div>
+      <span class="hud tl"></span><span class="hud tr"></span><span class="hud bl"></span><span class="hud br"></span>
       <span class="pill" id="mePill">You</span>
       <div class="meter" aria-hidden="true"><i id="level"></i></div>
       <span class="name">🧑‍💼 You</span>
@@ -101,7 +140,7 @@ _HTML = f"""
 </div>
 """
 
-_JS = r"""
+_JS = ROBOT_LIB + r"""
 export default function (component) {
   const { data, parentElement, setTriggerValue } = component;
   const $ = (id) => parentElement.querySelector('#' + id);
@@ -112,13 +151,28 @@ export default function (component) {
   const av = parentElement.querySelector('.am-av');
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  const setAv = (s) => { if (av) av.setAttribute('class', 'am-av ' + s); $('aiTile').classList.toggle('speaking', s === 'speaking'); };
+  const setAv = (s) => {
+    if (av) av.setAttribute('class', 'am-av ' + s);
+    for (const c of ['speaking', 'listening', 'thinking']) $('aiTile').classList.toggle(c, s === c);
+    if (S.bot) S.bot.setState(s);
+    $('aiPill').textContent = { speaking: '🔊 Speaking', listening: '👂 Listening', thinking: '🧠 Thinking' }[s] || 'AI agent · online';
+  };
+  // ---------- 3D robot (falls back to the SVG avatar if WebGL / CDN is unavailable)
+  if ((!S.bot || S.bot.disposed) && !S.botLoading && amWebGL()) {
+    S.botLoading = true;
+    amLoadThree().then((THREE) => {
+      S.bot = amBuildRobot(THREE, $('bot3d'), { mood: d.mood, getLevel: () => (window.__amVC && window.__amVC.level) || 0 });
+      $('stage3d').classList.add('ready');
+      if (!S.greeted) { S.greeted = true; setTimeout(() => S.bot && S.bot.wave(), 400); }
+    }).catch(() => {}).finally(() => { S.botLoading = false; });
+  }
+  if (S.bot) S.bot.setMood(d.mood);
   const status = (t) => { $('status').textContent = t; };
   const note = (t) => { $('note').textContent = t; };
 
   // ---------- question
   $('caption').textContent = d.question || '';
-  $('aiName').textContent = d.who || 'Mentor';
+  $('aiName').textContent = '🤖 ' + (d.who || 'Mentor');
   if (!SR) note('🛈 Live voice typing needs Chrome or Edge. You can still type your answer here, or use the recorder below.');
 
   // ---------- clock
@@ -138,6 +192,7 @@ export default function (component) {
     const v = voices.find(x => x.lang === u.lang) || voices.find(x => x.lang && x.lang.startsWith(u.lang.slice(0,2)));
     if (v) u.voice = v;
     u.onstart = () => { setAv('speaking'); status('🔊 Speaking…'); };
+    u.onboundary = () => { if (S.bot) S.bot.pulse(); };
     u.onend = u.onerror = () => { setAv('idle'); status('Your turn'); then && then(); };
     window.speechSynthesis.speak(u);
   }
@@ -163,6 +218,7 @@ export default function (component) {
       const tick = () => {
         an.getByteTimeDomainData(buf);
         let peak = 0; for (const x of buf) peak = Math.max(peak, Math.abs(x - 128));
+        G.level = peak / 128;
         const lvl = parentElement.querySelector('#level'); if (lvl) lvl.style.width = Math.min(100, peak * 1.6) + '%';
         G.raf = requestAnimationFrame(tick);
       };
@@ -292,6 +348,7 @@ export default function (component) {
     const text = $('answer').value.trim();
     if (!text) { note('Say or type an answer first.'); return; }
     stopListening();
+    if (S.bot) S.bot.nod();
     setAv('thinking'); status('⏳ Your coaches are reviewing…');
     $('send').disabled = true;
     setTriggerValue('answer', { qid: d.qid, text, image: d.presence ? snapshot() : null, voice: measured() });
@@ -345,9 +402,9 @@ def decode_image(data_url: str | None) -> bytes | None:
 
 
 def stage(qid: int, question: str, who: str, accent: str, *, camera: bool, presence: bool, hands_free: bool,
-          autoplay: bool, key: str):
+          autoplay: bool, key: str, mood: str = "neutral"):
     """Mount the call stage. Returns the component result (.answer / .presence trigger values)."""
     return _stage(key=key, data={"qid": qid, "question": question, "who": who, "lang": ACCENT_LANG.get(accent, "en-GB"),
                                  "camera": camera, "presence": presence, "handsFree": hands_free,
-                                 "autoplay": autoplay, "rate": 0.97},
+                                 "autoplay": autoplay, "rate": 0.97, "mood": mood},
                   on_answer_change=lambda: None, on_presence_change=lambda: None)

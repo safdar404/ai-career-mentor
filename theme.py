@@ -51,6 +51,33 @@ section[data-testid="stSidebar"] .stRadio label:has(input:checked) { background:
   background-clip:text; color:transparent; }
 .am-hero p { margin:0; color: var(--muted); max-width: 62ch; font-size:1.02rem; }
 
+/* 3D hero with the live robot */
+.st-key-hero { padding: 18px 22px; margin-bottom: 18px; border-radius: 24px; border:1px solid rgba(139,92,246,.35);
+  background: radial-gradient(60% 90% at 15% 50%, rgba(91,124,250,.22), transparent 70%),
+              linear-gradient(135deg, rgba(139,92,246,.14), rgba(34,211,238,.05)), var(--ink-1);
+  box-shadow: 0 40px 80px -40px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06) inset; }
+.am-hero-text h1 { margin:6px 0 8px; font-size:2.6rem; line-height:1.05; background: var(--aurora);
+  -webkit-background-clip:text; background-clip:text; color:transparent; }
+.am-hero-text p { color: var(--muted); font-size:1.05rem; max-width: 56ch; margin:0; }
+.am-kicker { display:inline-block; font-size:.78rem; letter-spacing:.12em; text-transform:uppercase; color:#9BE7FF;
+  padding:4px 12px; border-radius:999px; border:1px solid rgba(34,211,238,.4); background: rgba(34,211,238,.08); }
+
+/* Depth: glass surfaces that lift toward you */
+.am-card, [data-testid="stMetric"], [data-testid="stExpander"] details, [data-testid="stForm"] {
+  background: linear-gradient(180deg, rgba(27,38,84,.55), rgba(20,29,61,.85)); border-color: rgba(139,92,246,.22) !important;
+  box-shadow: 0 18px 40px -26px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.05) inset; border-radius: 16px; }
+[data-testid="stMetric"] { padding: 12px 16px; border:1px solid rgba(139,92,246,.22); }
+.am-card, [data-testid="stMetric"] { transition: transform .25s cubic-bezier(.2,.8,.2,1), box-shadow .25s; }
+.am-card:hover, [data-testid="stMetric"]:hover { transform: translateY(-3px);
+  box-shadow: 0 26px 50px -24px rgba(91,124,250,.45), 0 1px 0 rgba(255,255,255,.07) inset; }
+.am-msg .am-av svg { filter: drop-shadow(0 6px 14px rgba(91,124,250,.45)); }
+.stButton > button, .stFormSubmitButton > button, .stDownloadButton > button {
+  box-shadow: 0 8px 20px -12px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.06) inset; transition: transform .1s, box-shadow .2s; }
+.stButton > button:hover, .stFormSubmitButton > button:hover { transform: translateY(-1px);
+  box-shadow: 0 12px 26px -12px rgba(139,92,246,.6), 0 1px 0 rgba(255,255,255,.08) inset; }
+.stButton > button[kind="primary"], .stFormSubmitButton > button[kind="primaryFormSubmit"] {
+  background: linear-gradient(90deg, var(--violet), var(--indigo) 60%, #22D3EE) !important; }
+
 .am-head { margin-bottom: 1.25rem; }
 .am-head h1 { font-size: 1.9rem; margin: 0 0 0.3rem 0; color: var(--text); }
 .am-head p { color: var(--muted); margin: 0; max-width: 70ch; }
@@ -125,6 +152,7 @@ textarea { font-size: 1rem !important; }
   .am-score .bar { grid-column: 1 / span 2; }
   .am-head h1 { font-size: 1.5rem; }
   .am-hero { flex-direction: column; text-align:center; }
+  .am-hero-text h1 { font-size: 2rem; }
   .am-bub { max-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

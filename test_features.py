@@ -208,3 +208,19 @@ def test_locked_profile_needs_pin(tmp_path, monkeypatch):
     _btn(at, "Start training").click().run()
     assert "user_id" not in at.session_state
     assert any("PIN-protected" in w.value for w in at.warning)
+
+
+def test_robot_mood_reacts_to_feelings_and_scores():
+    from components import robot_mood
+
+    assert robot_mood({"total": 80, "emotion": {"confidence": 3, "primary_emotion": "nervous"}}) == "encouraging"
+    assert robot_mood({"total": 82}) == "celebrate"
+    assert robot_mood({"total": 50, "emotion": {"confidence": 7, "primary_emotion": "focused"}}) == "neutral"
+
+
+def test_three_js_is_pinned_and_shared():
+    import robot3d
+
+    assert "three@0.160.0" in robot3d.THREE_URL
+    assert "__THREE_URL__" not in robot3d.ROBOT_LIB and robot3d.THREE_URL in robot3d.ROBOT_LIB
+    assert videocall._JS.startswith(robot3d.ROBOT_LIB)

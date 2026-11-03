@@ -4,7 +4,7 @@ import db
 from agents import SCENARIOS
 from avatar import bubble
 from components import (ACCENTS, answer_input, call_stage, clear_answer, coach_signals, conversation_mode, emotion_view, evaluation_view,
-                        page_header, prefs, presence_view, question_block, run_pending_presence, run_safely, speak)
+                        page_header, prefs, presence_view, question_block, robot_mood, run_pending_presence, run_safely, speak)
 
 
 def _reset() -> None:
@@ -82,6 +82,7 @@ def render(user, orch_getter) -> None:
                                                          signals=coach_signals(user.id, *submitted)))
             if out:
                 run_pending_presence("eng", sid, q, orch)
+                st.session_state["eng_mood"] = robot_mood(out)
                 st.session_state["eng_res"] = out
                 st.rerun()
     else:

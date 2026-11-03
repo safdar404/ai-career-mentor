@@ -388,6 +388,7 @@ def interview_runner(prefix: str, user_id: int, orch: Orchestrator) -> None:
                              lambda: orch.submit_answer(sid, q["id"], submitted[0], submitted[1], signals=sig))
             if out:
                 run_pending_presence(prefix, sid, q, orch)
+                st.session_state[f"{prefix}_mood"] = robot_mood(out)
                 st.session_state[f"{prefix}_res"] = out
                 st.rerun()
         presence_view(st.session_state.get(f"{prefix}_presence", {}).get(q["id"]))
@@ -424,6 +425,14 @@ def interview_runner(prefix: str, user_id: int, orch: Orchestrator) -> None:
             if summ is not None:
                 st.session_state[f"{prefix}_summary"] = summ
                 st.rerun()
+
+
+def robot_mood(result: dict) -> str:
+    """How the 3D agent should greet the next question: warm after a nervous answer, delighted after a strong one."""
+    emo = result.get("emotion") or {}
+    if emo and (emo.get("confidence", 10) <= 4 or emo.get("primary_emotion") in {"nervous", "anxious", "overwhelmed"}):
+        return "encouraging"
+    return "celebrate" if result.get("total", 0) >= 75 else "neutral"
 
 
 def coach_signals(user_id: int, answer: str, mode: str, voice_metrics: dict | None = None) -> dict | None:
@@ -478,7 +487,8 @@ def call_stage(prefix: str, user_id: int, sid: int, q: dict, mode: str, orch: Or
     video = mode == "video"
     result = videocall.stage(q["id"], q["question"], q.get("agent", "Interviewer"), p["accent"], camera=video,
                              presence=video and p["presence"] == "true", hands_free=p["hands_free"] == "true",
-                             autoplay=p["tts"] != "off", key=f"{prefix}-stage")
+                             autoplay=p["tts"] != "off", key=f"{prefix}-stage",
+                             mood=st.session_state.get(f"{prefix}_mood", "neutral"))
     snap = getattr(result, "presence", None)
     if snap and snap.get("qid") == q["id"]:
         _run_presence(prefix, sid, q, videocall.decode_image(snap.get("image")), orch)

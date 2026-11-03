@@ -229,7 +229,9 @@ def render(user, orch_getter) -> None:
             st.markdown("---")
             st.markdown("**🫁 Need a calm reset? Follow the circle.**")
         with c2:
-            st.markdown(f'<div style="text-align:center">{avatar_svg(120, "idle", "Mentor")}</div>', unsafe_allow_html=True)
+            from robot3d import robot
+
+            robot("coach-bot", height=260, mood="encouraging", bust=True)
             st.caption("Tip: in 🎙️ Voice or 🎥 Video call mode, the coach also reads your pace, pauses and voice "
                        "steadiness. In 💬 Chat it reads your words.")
         breathing()
