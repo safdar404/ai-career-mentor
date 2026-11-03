@@ -7,15 +7,17 @@ from __future__ import annotations
 import streamlit as st
 
 import db
-from config import get_logger, settings
+from config import get_logger
 from orchestrator import JOB_ROLES
 import components
-import academy, coding, dashboard, english, gaps, interview, projects, reports, roadmap, settings_page
+import keys
+import academy, coding, dashboard, english, gaps, history, interview, projects, reports, roadmap, settings_page
+from avatar import avatar_svg, brand_html
 from theme import CSS
 
 log = get_logger("app")
 
-st.set_page_config(page_title="AI Career Mentor", page_icon="🎙️", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="AI Career Mentor", page_icon="🤖", layout="wide", initial_sidebar_state="expanded")
 st.markdown(CSS, unsafe_allow_html=True)
 
 
@@ -33,56 +35,87 @@ except Exception:  # noqa: BLE001
     st.stop()
 
 PAGES = {
-    "Dashboard": dashboard.render,
-    "Live AI Interview": interview.render_live,
-    "English Communication Lab": english.render,
-    "Technical Assessment": interview.render_assessment,
-    "Python Coding Lab": coding.render,
-    "Generative AI Academy": lambda u, o: academy.render(u, o, "genai"),
-    "Agentic AI Academy": lambda u, o: academy.render(u, o, "agentic"),
-    "Project Presentation Trainer": projects.render,
-    "HR Interview Simulator": interview.render_hr,
-    "Weakness & Gap Analysis": gaps.render,
-    "Learning Roadmap": roadmap.render,
-    "Performance Reports": reports.render,
-    "Settings": settings_page.render,
+    "📊 Dashboard": dashboard.render,
+    "🎤 Live AI Interview": interview.render_live,
+    "🗣️ English Communication Lab": english.render,
+    "🧪 Technical Assessment": interview.render_assessment,
+    "🐍 Python Coding Lab": coding.render,
+    "🤖 Generative AI Academy": lambda u, o: academy.render(u, o, "genai"),
+    "🕸️ Agentic AI Academy": lambda u, o: academy.render(u, o, "agentic"),
+    "📽️ Project Presentation Trainer": projects.render,
+    "🤝 HR Interview Simulator": interview.render_hr,
+    "🎯 Weakness & Gap Analysis": gaps.render,
+    "🗺️ Learning Roadmap": roadmap.render,
+    "📈 Performance Reports": reports.render,
+    "🗂️ Conversation History": history.render,
+    "⚙️ Settings": settings_page.render,
 }
 
 
+def _sign_in(user_id: int) -> None:
+    st.session_state["user_id"] = user_id
+    st.rerun()
+
+
 def onboarding() -> None:
-    components.page_header("AI CAREER MENTOR",
-                           "Your Personal AI Interviewer, Communication Coach & Career Development Partner.")
+    st.markdown(f'<div class="am-hero">{avatar_svg(112, "speaking", "AI Career Mentor")}<div>'
+                '<h1>AI Career Mentor</h1><p>Your personal AI interviewer, communication coach and career '
+                'development partner. Practise by 💬 chat, 🎙️ voice call or 🎥 video call.</p></div></div>',
+                unsafe_allow_html=True)
     users = db.list_users()
-    left, right = st.columns([3, 2])
+    left, right = st.columns([3, 2], gap="large")
     with left:
-        st.markdown("#### Create your profile")
+        st.markdown("#### ✨ Create your profile")
         with st.form("onboard"):
-            name = st.text_input("Your name", value="" if users else "Muhammad Safdar", max_chars=120)
-            role = st.selectbox("Target role", JOB_ROLES, index=1)
+            name = st.text_input("Your name", max_chars=120, placeholder="e.g. Muhammad Safdar")
+            role = st.selectbox("🎯 Target role", JOB_ROLES, index=1)
             background = st.text_area(
-                "Your background", height=110, max_chars=3000,
+                "🧾 Your background", height=110, max_chars=3000,
                 placeholder="e.g. GIS professional, completed AI Full Stack Development training, built Streamlit "
                             "and RAG projects. Interviewers use this as context.")
-            go = st.form_submit_button("Start training", type="primary")
+            pin = st.text_input("🔒 Profile PIN (optional, 4-8 digits)", type="password", max_chars=8,
+                                help="Others using this app link can't open your profile and history without it.")
+            go = st.form_submit_button("🚀 Start training", type="primary")
         if go:
             try:
+                if not name.strip():
+                    raise ValueError("Please enter your name.")
+                if pin and not (pin.isdigit() and 4 <= len(pin) <= 8):
+                    raise ValueError("The PIN must be 4 to 8 digits.")
                 u = db.get_or_create_user(name, role, background.strip())
-                st.session_state["user_id"] = u.id
-                st.rerun()
+                if db.has_pin(u.id) and not db.check_pin(u.id, pin):
+                    raise ValueError("A profile with this name already exists and is PIN-protected. Use "
+                                     "'Continue as' with its PIN, or pick another name.")
+                if pin and not db.has_pin(u.id):
+                    db.set_pin(u.id, pin)
+                _sign_in(u.id)
             except ValueError as exc:
                 st.warning(str(exc))
     with right:
         if users:
-            st.markdown("#### Continue as")
+            st.markdown("#### 👤 Continue as")
             for u in users:
-                if st.button(u.name, key=f"user-{u.id}", width="stretch"):
-                    st.session_state["user_id"] = u.id
-                    st.rerun()
-        st.markdown("#### What happens here")
-        st.markdown("Every answer is scored on ten categories by separate technical and English coaches. "
-                    "Weaknesses are recorded, repeated ones become priorities, and your roadmap adapts to them.")
-        if not settings.any_llm:
-            st.warning("No AI key configured yet. Add ANTHROPIC_API_KEY or OPENAI_API_KEY to .env to enable coaching.")
+                locked = db.has_pin(u.id)
+                if not locked:
+                    if st.button(f"👤 {u.name}", key=f"user-{u.id}", width="stretch"):
+                        _sign_in(u.id)
+                    continue
+                with st.popover(f"🔒 {u.name}", width="stretch"):
+                    with st.form(f"pin-{u.id}", border=False):
+                        entered = st.text_input("PIN", type="password", max_chars=8, key=f"pin-in-{u.id}")
+                        if st.form_submit_button("Unlock", type="primary"):
+                            if db.check_pin(u.id, entered):
+                                _sign_in(u.id)
+                            else:
+                                st.error("Wrong PIN.")
+        st.markdown("#### 🧭 What happens here")
+        st.markdown("- 🧑‍⚖️ Every answer is scored on **ten categories** by separate technical and English coaches\n"
+                    "- 🎯 Weaknesses are recorded; repeated ones become priorities\n"
+                    "- 🗺️ Your roadmap adapts to your real results\n"
+                    "- 🗂️ Every conversation is saved so you can review it later")
+        if not keys.any_key():
+            st.info("🔑 After you create your profile, paste a Claude or OpenAI API key in the sidebar to switch on "
+                    "AI coaching. Keys stay in your browser session only.")
 
 
 def main() -> None:
@@ -94,15 +127,12 @@ def main() -> None:
         return
 
     with st.sidebar:
-        st.markdown('<div class="am-brand">AI CAREER MENTOR<span>Your Personal AI Interviewer, Communication '
-                    'Coach & Career Development Partner.</span></div>', unsafe_allow_html=True)
-        st.markdown("")
+        st.markdown(brand_html(), unsafe_allow_html=True)
         page = st.radio("Navigate", list(PAGES), key="nav", label_visibility="collapsed")
         st.markdown("---")
-        st.caption(f"Signed in as **{user.name}**  \nTarget: {user.target_role}")
-        if not settings.any_llm:
-            st.caption("AI coaching is off: no API key configured.")
-        if st.button("Switch user"):
+        keys.sidebar_panel()
+        st.caption(f"👤 **{user.name}**  \n🎯 {user.target_role}")
+        if st.button("🔄 Switch user", width="stretch"):
             st.session_state.clear()
             st.rerun()
 

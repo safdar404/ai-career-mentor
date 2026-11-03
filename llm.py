@@ -10,7 +10,7 @@ import re
 import time
 from typing import Any, Protocol
 
-from config import Settings, get_logger, settings
+from config import Settings, get_logger, resolve, settings
 
 log = get_logger(__name__)
 
@@ -30,7 +30,7 @@ class LLMProvider(Protocol):
 def _friendly_error(provider: str, exc: Exception) -> LLMError:
     kind = type(exc).__name__
     if "Authentication" in kind or "PermissionDenied" in kind:
-        return LLMError(f"{provider} rejected the API key. Check the key in your .env file.")
+        return LLMError(f"{provider} rejected the API key. Check the key in the 🔑 API keys panel.")
     if "RateLimit" in kind:
         return LLMError(f"{provider} rate limit reached. Wait a minute and try again.")
     if "NotFound" in kind:
@@ -59,6 +59,11 @@ def _with_retries(fn, provider: str, attempts: int = 3):
             raise _friendly_error(provider, exc) from exc
 
 
+def _claude_accepts_sampling(model: str) -> bool:
+    """Claude 5-generation models reject temperature/top_p/top_k with a 400 error; older ones accept them."""
+    return not re.search(r"claude-(?:opus|sonnet|haiku|fable)-(?:[5-9]|\d{2})", model or "")
+
+
 class AnthropicProvider:
     name = "Claude"
 
@@ -70,11 +75,21 @@ class AnthropicProvider:
 
     def complete(self, system, messages, max_tokens=1500, temperature=0.4):
         def call():
+            kwargs = {"temperature": temperature} if _claude_accepts_sampling(self.model) else {}
             resp = self._client.messages.create(model=self.model, system=system, messages=messages,
-                                                max_tokens=max_tokens, temperature=temperature)
+                                                max_tokens=max_tokens, **kwargs)
             return "".join(getattr(b, "text", "") for b in resp.content)
 
         return _with_retries(call, "Claude")
+
+    def see(self, system: str, prompt: str, image: bytes, mime: str = "image/jpeg", max_tokens: int = 900) -> str:
+        """Vision call: one image plus an instruction."""
+        import base64
+
+        content = [{"type": "image", "source": {"type": "base64", "media_type": mime,
+                                                "data": base64.b64encode(image).decode()}},
+                   {"type": "text", "text": prompt}]
+        return self.complete(system, [{"role": "user", "content": content}], max_tokens=max_tokens, temperature=0.2)
 
 
 class OpenAIProvider:
@@ -95,8 +110,16 @@ class OpenAIProvider:
 
         return _with_retries(call, "OpenAI")
 
+    def see(self, system: str, prompt: str, image: bytes, mime: str = "image/jpeg", max_tokens: int = 900) -> str:
+        import base64
+
+        url = f"data:{mime};base64,{base64.b64encode(image).decode()}"
+        content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": url, "detail": "low"}}]
+        return self.complete(system, [{"role": "user", "content": content}], max_tokens=max_tokens, temperature=0.2)
+
 
 def available_providers(cfg: Settings = settings) -> list[str]:
+    cfg = resolve(cfg)
     out = []
     if cfg.has_anthropic:
         out.append("anthropic")
@@ -107,13 +130,15 @@ def available_providers(cfg: Settings = settings) -> list[str]:
 
 def get_provider(preferred: str | None = None, cfg: Settings = settings, model: str | None = None) -> LLMProvider:
     """Return the preferred provider, falling back to whichever has a key."""
+    cfg = resolve(cfg)
     order = [preferred or cfg.default_provider, "anthropic", "openai"]
     for p in order:
         if p == "anthropic" and cfg.has_anthropic:
             return AnthropicProvider(cfg, model if preferred == "anthropic" else None)
         if p == "openai" and cfg.has_openai:
             return OpenAIProvider(cfg, model if preferred == "openai" else None)
-    raise LLMError("No AI provider is configured. Add ANTHROPIC_API_KEY or OPENAI_API_KEY to your .env file, then restart the app.")
+    raise LLMError("No AI provider is connected yet. Paste your Claude or OpenAI API key in the 🔑 API keys panel "
+                   "in the sidebar (or set ANTHROPIC_API_KEY / OPENAI_API_KEY on the server).")
 
 
 # --------------------------------------------------------------------------- JSON helper

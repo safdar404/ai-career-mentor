@@ -17,7 +17,7 @@ def _layout(fig: go.Figure, height: int = 300) -> go.Figure:
 
 
 def render(user, orch_getter) -> None:
-    page_header(f"Welcome back, {user.name.split()[0]}",
+    page_header(f"👋 Welcome back, {user.name.split()[0]}",
                 f"Your progress toward {user.target_role} interviews, calculated from every answer you have submitted.")
     metrics = analytics.dashboard_metrics(user.id)
     if all(m["value"] is None for m in metrics.values()):

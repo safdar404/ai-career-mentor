@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 try:
@@ -69,7 +69,63 @@ def load_settings() -> Settings:
     )
 
 
-settings = load_settings()
+base_settings = load_settings()
+
+# Keys a visitor types into the app live only in their Streamlit session (never the DB or disk).
+SESSION_KEYS = "api_keys"
+_KNOWN_SECRETS: set[str] = set()
+
+
+def _session_keys() -> dict[str, str]:
+    """API keys entered in this browser session, if we are inside a Streamlit script run."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        if get_script_run_ctx(suppress_warning=True) is None:
+            return {}
+        import streamlit as st
+
+        return dict(st.session_state.get(SESSION_KEYS) or {})
+    except Exception:  # noqa: BLE001 - outside Streamlit (API, tests, threads)
+        return {}
+
+
+def remember_secret(value: str) -> None:
+    """Register a key so the log filter redacts it even from background threads."""
+    if value:
+        _KNOWN_SECRETS.add(value)
+
+
+def current_settings() -> Settings:
+    """Server settings with any keys the visitor entered in this session layered on top."""
+    keys = _session_keys()
+    if not keys:
+        return base_settings
+    return replace(base_settings,
+                   anthropic_api_key=keys.get("anthropic") or base_settings.anthropic_api_key,
+                   openai_api_key=keys.get("openai") or base_settings.openai_api_key)
+
+
+def key_source(provider: str) -> str:
+    """'session', 'server' or '' for where a provider's key comes from."""
+    if _session_keys().get(provider):
+        return "session"
+    return "server" if getattr(base_settings, f"{provider}_api_key") else ""
+
+
+class _SettingsProxy:
+    """`settings.x` always reads the current session's view, so existing imports keep working."""
+
+    def __getattr__(self, name: str):
+        return getattr(current_settings(), name)
+
+
+settings = _SettingsProxy()
+
+
+def resolve(cfg) -> Settings:
+    """Freeze the proxy into a concrete Settings (safe to hand to worker threads)."""
+    return current_settings() if isinstance(cfg, _SettingsProxy) else cfg
 
 
 class _SecretFilter(logging.Filter):
@@ -77,7 +133,7 @@ class _SecretFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = str(record.getMessage())
-        for secret in (settings.anthropic_api_key, settings.openai_api_key):
+        for secret in (base_settings.anthropic_api_key, base_settings.openai_api_key, *_KNOWN_SECRETS):
             if secret and secret in msg:
                 record.msg = msg.replace(secret, "***")
                 record.args = ()
@@ -91,6 +147,6 @@ def get_logger(name: str) -> logging.Logger:
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         handler.addFilter(_SecretFilter())
         logger.addHandler(handler)
-        logger.setLevel(settings.log_level)
+        logger.setLevel(base_settings.log_level)
         logger.propagate = False
     return logger

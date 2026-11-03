@@ -91,3 +91,12 @@ class FakeProvider:
             self.calls.append("progress.weekly")
             return json.dumps({"english_communication": "Improving", "technical_knowledge": "RAG weak"})
         raise AssertionError("Unexpected prompt: " + s[:200])
+
+    def see(self, system, prompt, image, mime="image/jpeg", max_tokens=900):
+        self.calls.append("presence.see")
+        assert image, "no image passed"
+        return json.dumps({"person_visible": True, "eye_contact": 6, "posture": 7, "framing": 5, "lighting": 4,
+                           "expression": 7, "background": 8, "overall": 6,
+                           "observations": ["Your eyes are on the screen, not the lens"],
+                           "tips": ["Raise the laptop so the camera is at eye level", "Face a window for softer light"],
+                           "encouragement": "Good energy - small setup tweaks will lift it."})

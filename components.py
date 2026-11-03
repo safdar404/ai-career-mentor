@@ -7,6 +7,7 @@ from typing import Any, Callable
 import streamlit as st
 
 import db, voice
+from avatar import avatar_svg, bubble
 from config import get_logger, settings
 from llm import LLMError
 from orchestrator import Orchestrator, ValidationError
@@ -32,7 +33,10 @@ ACCENTS = ["International English", "American English", "British English", "Cana
 STYLES = ["Friendly", "Neutral", "Challenging"]
 
 DEFAULT_PREFS = {"provider": "", "accent": "International English", "tts": "browser", "autoplay": "true",
-                 "urdu_support": "false", "style": "Neutral"}
+                 "urdu_support": "false", "style": "Neutral", "mode": "chat", "hands_free": "false",
+                 "presence": "true"}
+
+MODES = {"chat": "💬 Chat", "voice": "🎙️ Voice call", "video": "🎥 Video call"}
 
 
 def esc(text: Any) -> str:
@@ -63,14 +67,14 @@ def get_orchestrator(user_id: int) -> Orchestrator | None:
 
 
 def setup_notice(msg: str) -> None:
-    st.warning(msg)
-    with st.expander("How to connect an AI provider"):
-        st.markdown(
-            "1. Copy `.env.example` to `.env` in the project folder.\n"
-            "2. Add `ANTHROPIC_API_KEY=...` (Claude, recommended) and/or `OPENAI_API_KEY=...` "
-            "(also enables voice transcription).\n"
-            "3. Restart the app with `streamlit run app.py`.\n\n"
-            "Your dashboard, roadmap and saved data still work without a key.")
+    import keys
+
+    st.markdown(f'<div class="am-callout">{avatar_svg(56, "thinking", "AI Mentor")}<div><b>🔑 Connect an AI key to start</b>'
+                '<br><span>Paste a Claude or OpenAI API key. It stays in this browser session only and is never saved.'
+                '</span></div></div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        keys.key_form("inline")
+    st.caption("📊 Your dashboard, roadmap, history and saved data still work without a key.")
 
 
 def run_safely(label: str, fn: Callable[[], Any]) -> Any:
@@ -111,8 +115,7 @@ def metric_card(label: str, value: float | None, n: int, unit: str = "answers", 
 
 
 def question_block(text: str, who: str, meta: list[tuple[str, str]] | None = None) -> None:
-    st.markdown(f'<div class="am-who">{esc(who)}</div><div class="am-question">{esc(text)}</div>',
-                unsafe_allow_html=True)
+    st.markdown(bubble(text, who, "assistant"), unsafe_allow_html=True)
     if meta:
         chips(*meta)
 
@@ -131,9 +134,9 @@ def speak(text: str, user_id: int, key: str, autoplay: bool | None = None, label
             except LLMError as exc:
                 st.caption(str(exc))
                 return
-        st.audio(cache[key], format="audio/mp3", autoplay=auto)
+        st.iframe(voice.audio_player_html(cache[key], autoplay=auto, label=label, with_avatar=False), height=46)
     else:
-        st.iframe(voice.browser_tts_html(text, p["accent"], autoplay=auto, label=label), height=46)
+        st.iframe(voice.browser_tts_html(text, p["accent"], autoplay=auto, label=label, with_avatar=False), height=46)
 
 
 def scorecard(scores: dict, total: float) -> None:
@@ -170,21 +173,21 @@ def bullet_list(title: str, items: list, empty: str | None = None) -> None:
 def technical_feedback(t: dict) -> None:
     c1, c2 = st.columns(2)
     with c1:
-        bullet_list("What you got right", t.get("what_was_correct", []), "Nothing clearly correct yet.")
-        bullet_list("Misunderstood", t.get("misunderstood", []) + t.get("incorrect_concepts", []), "No misunderstandings found.")
+        bullet_list("✅ What you got right", t.get("what_was_correct", []), "Nothing clearly correct yet.")
+        bullet_list("⚠️ Misunderstood", t.get("misunderstood", []) + t.get("incorrect_concepts", []), "No misunderstandings found.")
     with c2:
-        bullet_list("Missing concepts", t.get("missing_concepts", []), "Nothing important missing.")
+        bullet_list("🧩 Missing concepts", t.get("missing_concepts", []), "Nothing important missing.")
         if t.get("star"):
             star = t["star"]
-            st.markdown("**STAR structure**")
+            st.markdown("**⭐ STAR structure**")
             for part in ("situation", "task", "action", "result"):
                 val = star.get(part) or ""
                 st.markdown(f"- {part.title()}: {esc(val) if val else '_missing_'}")
     if t.get("correct_explanation"):
-        st.markdown("**The correct explanation**")
+        st.markdown("**📖 The correct explanation**")
         st.markdown(t["correct_explanation"])
     if t.get("exercise"):
-        st.info(f"Practice exercise: {t['exercise']}")
+        st.info(f"🏋️ Practice exercise: {t['exercise']}")
 
 
 def english_feedback(c: dict, user_id: int, key: str) -> None:
@@ -192,7 +195,7 @@ def english_feedback(c: dict, user_id: int, key: str) -> None:
         {"original": u.get("original"), "correction": u.get("natural"), "explanation": u.get("explanation")}
         for u in c.get("unnatural_expressions", [])]
     if fixes:
-        st.markdown("**Corrections**")
+        st.markdown("**✏️ Corrections**")
         for m in fixes:
             st.markdown(f'<div class="am-fix"><span class="from">{esc(m.get("original"))}</span><br>'
                         f'<span class="to">{esc(m.get("correction"))}</span>'
@@ -200,7 +203,7 @@ def english_feedback(c: dict, user_id: int, key: str) -> None:
     else:
         st.caption("No grammar or phrasing mistakes found.")
     if c.get("natural_version"):
-        st.markdown("**A natural, professional version**")
+        st.markdown("**💼 A natural, professional version**")
         st.success(c["natural_version"])
         speak(c["natural_version"], user_id, key=f"{key}-natural", autoplay=False, label="Listen to this version")
         if c.get("why_better"):
@@ -208,16 +211,16 @@ def english_feedback(c: dict, user_id: int, key: str) -> None:
     cols = st.columns(2)
     with cols[0]:
         if c.get("new_vocabulary"):
-            st.markdown("**Vocabulary to use**")
+            st.markdown("**📚 Vocabulary to use**")
             for v in c["new_vocabulary"]:
                 st.markdown(f"- **{esc(v.get('term'))}**: {esc(v.get('meaning'))}  \n  _{esc(v.get('example'))}_")
     with cols[1]:
         if c.get("words_to_practise"):
-            st.markdown("**Words to practise saying**")
+            st.markdown("**🔤 Words to practise saying**")
             st.markdown("\n".join(f"- {esc(w.get('word'))} ({esc(w.get('stress'))})" for w in c["words_to_practise"]))
             st.caption("Suggested from your wording. Your audio is not analysed for pronunciation.")
     if c.get("practice_sentence"):
-        st.markdown("**Say this sentence out loud three times**")
+        st.markdown("**🗣️ Say this sentence out loud three times**")
         st.markdown(f"> {c['practice_sentence']}")
         speak(c["practice_sentence"], user_id, key=f"{key}-practice", autoplay=False, label="Hear it")
 
@@ -239,17 +242,17 @@ def lesson_view(lesson: dict, user_id: int, key: str) -> None:
     st.markdown(f"#### {esc(lesson.get('title'))}")
     st.markdown(lesson.get("simple_explanation", ""))
     if lesson.get("analogy"):
-        st.markdown(f"**Think of it like this:** {lesson['analogy']}")
+        st.markdown(f"**💡 Think of it like this:** {lesson['analogy']}")
     if lesson.get("example"):
         st.markdown("**Example**")
         st.markdown(lesson["example"])
     c1, c2 = st.columns(2)
     with c1:
-        bullet_list("Key points", lesson.get("key_points", []))
+        bullet_list("🔑 Key points", lesson.get("key_points", []))
     with c2:
-        bullet_list("Common mistakes", lesson.get("common_mistakes", []))
+        bullet_list("⚠️ Common mistakes", lesson.get("common_mistakes", []))
     if lesson.get("urdu_note"):
-        st.markdown("**Urdu support**")
+        st.markdown("**🇵🇰 Urdu support**")
         st.markdown(f"> {lesson['urdu_note']}")
     speak(lesson.get("simple_explanation", ""), user_id, key=f"{key}-lesson", autoplay=False, label="Listen to the explanation")
 
@@ -259,33 +262,33 @@ def evaluation_view(res: dict, user_id: int, key: str) -> None:
     if res.get("attempt", 1) > 1:
         st.caption(f"Attempt {res['attempt']} on this question.")
     if res.get("new_difficulty"):
-        st.info(f"Difficulty adjusted to {res['new_difficulty']} based on your last two answers.")
+        st.info(f"🎚️ Difficulty adjusted to {res['new_difficulty']} based on your last two answers.")
     if res.get("pitch"):
         p = res["pitch"]
         st.info(f"Length: about {p['estimated_seconds']}s for a {p['target_seconds']}s target ({p['verdict']}). "
                 f"{p['note']}")
     tabs = []
     if res.get("technical"):
-        tabs.append("Technical feedback")
+        tabs.append("🧠 Technical feedback")
     if res.get("communication"):
-        tabs.append("English feedback")
-    tabs.append("Improved answer")
-    tabs.append("Weaknesses recorded")
+        tabs.append("🗣️ English feedback")
+    tabs.append("✨ Improved answer")
+    tabs.append("🎯 Weaknesses recorded")
     if res.get("lesson"):
-        tabs.insert(0, "Learn this first")
+        tabs.insert(0, "📚 Learn this first")
     t = dict(zip(tabs, st.tabs(tabs)))
-    if "Learn this first" in t:
-        with t["Learn this first"]:
+    if "📚 Learn this first" in t:
+        with t["📚 Learn this first"]:
             st.markdown("You could not answer this one yet, so here is the concept. "
                         "Your next question will check it again.")
             lesson_view(res["lesson"], user_id, key)
-    if "Technical feedback" in t:
-        with t["Technical feedback"]:
+    if "🧠 Technical feedback" in t:
+        with t["🧠 Technical feedback"]:
             technical_feedback(res["technical"])
-    if "English feedback" in t:
-        with t["English feedback"]:
+    if "🗣️ English feedback" in t:
+        with t["🗣️ English feedback"]:
             english_feedback(res["communication"], user_id, key)
-    with t["Improved answer"]:
+    with t["✨ Improved answer"]:
         improved = (res.get("technical") or {}).get("improved_answer") or (res.get("communication") or {}).get("natural_version")
         if improved:
             st.markdown(improved)
@@ -293,7 +296,7 @@ def evaluation_view(res: dict, user_id: int, key: str) -> None:
             st.caption("Read it aloud, then use 'Answer again' to repeat it in your own words.")
         else:
             st.caption("No improved answer for this exercise.")
-    with t["Weaknesses recorded"]:
+    with t["🎯 Weaknesses recorded"]:
         gaps_found(res.get("gaps", []))
 
 
@@ -305,7 +308,7 @@ def answer_input(key: str, user_id: int, placeholder: str = "Type your answer he
     st.session_state.setdefault(mode_key, "text")
 
     if voice.stt_available():
-        audio = st.audio_input("Record your answer", key=f"{key}-audio")
+        audio = st.audio_input("🎙️ Record your answer", key=f"{key}-audio")
         if audio is not None:
             def _transcribe() -> None:
                 try:
@@ -313,17 +316,17 @@ def answer_input(key: str, user_id: int, placeholder: str = "Type your answer he
                     st.session_state[mode_key] = "voice"
                 except LLMError as exc:
                     st.session_state[f"{key}-err"] = str(exc)
-            st.button("Transcribe recording", key=f"{key}-tx", on_click=_transcribe)
+            st.button("📝 Transcribe recording", key=f"{key}-tx", on_click=_transcribe)
             if st.session_state.get(f"{key}-err"):
                 st.error(st.session_state.pop(f"{key}-err"))
-        st.caption("Record, transcribe, check the text, then submit.")
+        st.caption("Record → transcribe → check the text → submit.")
     else:
-        st.caption("Voice answers need OPENAI_API_KEY for transcription. Typed answers work now.")
+        st.caption("🎙️ Whisper recording needs an OpenAI key. Use 🎙️ Voice call mode for free browser voice typing, or type here.")
 
     st.text_area("Your answer", key=text_key, height=170, placeholder=placeholder, label_visibility="collapsed")
     words = len((st.session_state.get(text_key) or "").split())
-    st.caption(f"{words} words")
-    if st.button("Submit answer", key=f"{key}-submit", type="primary"):
+    st.caption(f"✍️ {words} words")
+    if st.button("✅ Submit answer", key=f"{key}-submit", type="primary"):
         ans = st.session_state.get(text_key, "")
         mode = st.session_state.get(mode_key, "text")
         return ans, mode
@@ -350,7 +353,7 @@ def interview_runner(prefix: str, user_id: int, orch: Orchestrator) -> None:
     summary = st.session_state.get(f"{prefix}_summary")
     if summary:
         session_summary_view(summary)
-        if st.button("Start a new session", key=f"{prefix}-new", type="primary"):
+        if st.button("🚀 Start a new session", key=f"{prefix}-new", type="primary"):
             reset_runner(prefix)
             st.rerun()
         return
@@ -359,52 +362,151 @@ def interview_runner(prefix: str, user_id: int, orch: Orchestrator) -> None:
     res = st.session_state.get(f"{prefix}_res")
     answer_key = f"{prefix}-ans-{q['id']}" if q else f"{prefix}-ans"
 
+    mode = conversation_mode(prefix, user_id)
     if q:
         meta = [(f"Question {q.get('position', 1)} of {sess.planned_questions}" if sess.planned_questions < 100 else "", ""),
                 (topic_label(q["topic"]), "volt"), (q.get("difficulty") or sess.difficulty, "violet"),
                 ("Follow-up" if q.get("kind") == "follow_up" else ("Re-check" if q.get("kind") == "revision" else ""), "warn")]
-        question_block(q["question"], q.get("agent", "Interviewer"), meta)
-        speak(q["question"], user_id, key=f"q-{q['id']}", label="Hear the question")
+        if mode == "chat" or res:
+            question_block(q["question"], q.get("agent", "Interviewer"), meta)
+            if mode == "chat":
+                speak(q["question"], user_id, key=f"q-{q['id']}", label="Hear the question")
+        else:
+            chips(*meta)
 
     if q and not res:
-        submitted = answer_input(answer_key, user_id)
+        if mode == "chat":
+            submitted = answer_input(answer_key, user_id)
+        else:
+            submitted = call_stage(prefix, user_id, sid, q, mode, orch)
+            with st.expander("⌨️ Prefer to type, or record with Whisper?"):
+                submitted = answer_input(answer_key, user_id) or submitted
         if submitted:
-            out = run_safely("Evaluating your answer (technical and English coaches are reviewing it)...",
+            out = run_safely("🧑‍⚖️ Your technical and English coaches are reviewing the answer...",
                              lambda: orch.submit_answer(sid, q["id"], submitted[0], submitted[1]))
             if out:
+                run_pending_presence(prefix, sid, q, orch)
                 st.session_state[f"{prefix}_res"] = out
                 st.rerun()
+        presence_view(st.session_state.get(f"{prefix}_presence", {}).get(q["id"]))
 
     if res:
         st.markdown("---")
-        st.markdown("### Feedback")
+        st.markdown("### 📊 Feedback")
         evaluation_view(res, user_id, key=f"{prefix}-{q['id']}-{res['evaluation_id']}")
+        presence_view(st.session_state.get(f"{prefix}_presence", {}).get(q["id"]))
         c1, c2, c3 = st.columns(3)
         with c1:
-            if st.button("Answer again", key=f"{prefix}-again", help="Try the same question again using the feedback"):
+            if st.button("🔁 Answer again", key=f"{prefix}-again", help="Try the same question again using the feedback"):
                 st.session_state.pop(f"{prefix}_res", None)
                 clear_answer(answer_key)
                 st.rerun()
         with c2:
-            if not res.get("complete") and st.button("Next question", key=f"{prefix}-next", type="primary"):
+            if not res.get("complete") and st.button("➡️ Next question", key=f"{prefix}-next", type="primary"):
                 nq = run_safely("Preparing the next question...", lambda: orch.next_question(sid))
                 if nq:
                     st.session_state[f"{prefix}_q"] = nq
                     st.session_state.pop(f"{prefix}_res", None)
                     st.rerun()
         with c3:
-            label = "See session summary" if res.get("complete") else "End session"
+            label = "🏁 See session summary" if res.get("complete") else "⏹️ End session"
             if st.button(label, key=f"{prefix}-end", type="primary" if res.get("complete") else "secondary"):
                 summ = run_safely("Writing your session summary...", lambda: orch.end_session(sid))
                 if summ:
                     st.session_state[f"{prefix}_summary"] = summ
                     st.rerun()
     elif q:
-        if st.button("End session without answering", key=f"{prefix}-quit"):
+        if st.button("⏹️ End session without answering", key=f"{prefix}-quit"):
             summ = run_safely("Closing the session...", lambda: orch.end_session(sid))
             if summ is not None:
                 st.session_state[f"{prefix}_summary"] = summ
                 st.rerun()
+
+
+def conversation_mode(prefix: str, user_id: int) -> str:
+    """💬 / 🎙️ / 🎥 switch, remembered per learner."""
+    p = prefs(user_id)
+    current = p["mode"] if p["mode"] in MODES else "chat"
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        choice = st.segmented_control("Conversation mode", list(MODES), format_func=MODES.get, default=current,
+                                      key=f"{prefix}-mode-ctl", label_visibility="collapsed")
+    choice = choice or current
+    if choice != current:
+        db.set_setting(user_id, "mode", choice)
+    if choice != "chat":
+        with c2.popover("⚙️ Call settings", width="stretch"):
+            hf = st.toggle("🤲 Hands-free: listen after each question and send after a pause",
+                           value=p["hands_free"] == "true", key=f"{prefix}-hf")
+            pr = st.toggle("📸 Presence feedback on each answer (sends one camera frame to your AI provider)",
+                           value=p["presence"] == "true", key=f"{prefix}-pr", disabled=choice != "video")
+            if str(hf).lower() != p["hands_free"]:
+                db.set_setting(user_id, "hands_free", str(hf).lower())
+            if str(pr).lower() != p["presence"]:
+                db.set_setting(user_id, "presence", str(pr).lower())
+            st.caption("Voice typing uses your browser's speech recognition (Chrome or Edge). "
+                       "Camera frames are used for one feedback call and never stored.")
+    return choice
+
+
+def call_stage(prefix: str, user_id: int, sid: int, q: dict, mode: str, orch: Orchestrator) -> tuple[str, str] | None:
+    """Audio/video call stage. Returns (answer, input_mode) when the learner sends an answer."""
+    import videocall
+
+    p = prefs(user_id)
+    video = mode == "video"
+    result = videocall.stage(q["id"], q["question"], q.get("agent", "Interviewer"), p["accent"], camera=video,
+                             presence=video and p["presence"] == "true", hands_free=p["hands_free"] == "true",
+                             autoplay=p["tts"] != "off", key=f"{prefix}-stage")
+    snap = getattr(result, "presence", None)
+    if snap and snap.get("qid") == q["id"]:
+        _run_presence(prefix, sid, q, videocall.decode_image(snap.get("image")), orch)
+    ans = getattr(result, "answer", None)
+    if ans and ans.get("qid") == q["id"] and (ans.get("text") or "").strip():
+        img = videocall.decode_image(ans.get("image"))
+        if img:  # coached right after the answer is evaluated, so the transcript stays in order
+            st.session_state[f"{prefix}_pending_frame"] = (q["id"], img)
+        return ans["text"], mode
+    return None
+
+
+def run_pending_presence(prefix: str, sid: int, q: dict, orch: Orchestrator) -> None:
+    pending = st.session_state.pop(f"{prefix}_pending_frame", None)
+    if pending and pending[0] == q["id"]:
+        _run_presence(prefix, sid, q, pending[1], orch)
+
+
+def _run_presence(prefix: str, sid: int, q: dict, image: bytes | None, orch: Orchestrator) -> None:
+    if not image:
+        st.caption("📸 No camera frame was available for presence feedback.")
+        return
+    out = run_safely("📸 Your video presence coach is looking at the frame...",
+                     lambda: orch.presence_check(sid, image, q["question"]))
+    if out:
+        st.session_state.setdefault(f"{prefix}_presence", {})[q["id"]] = out
+
+
+PRESENCE_LABELS = {"eye_contact": "👀 Eye contact", "posture": "🧍 Posture", "framing": "🖼️ Framing",
+                   "lighting": "💡 Lighting", "expression": "🙂 Expression", "background": "🏠 Background"}
+
+
+def presence_view(r: dict | None) -> None:
+    if not r:
+        return
+    with st.container(border=True):
+        st.markdown(f"#### 📸 On-camera presence · {r['overall']}/10")
+        if not r.get("person_visible", True):
+            st.warning("No one was visible in the frame. Check that your camera is pointing at you.")
+        rows = "".join(f'<div class="lbl">{esc(lbl)}</div><div class="bar"><i style="width:{r.get(k, 0) * 10}%"></i></div>'
+                       f'<div class="val">{r.get(k, 0)}</div>' for k, lbl in PRESENCE_LABELS.items())
+        c1, c2 = st.columns([3, 2])
+        c1.markdown(f'<div class="am-score">{rows}</div>', unsafe_allow_html=True)
+        with c2:
+            bullet_list("✅ Quick fixes", r.get("tips", []))
+        if r.get("observations"):
+            st.caption(" · ".join(r["observations"]))
+        if r.get("encouragement"):
+            st.success(f"💪 {r['encouragement']}")
 
 
 def start_runner(prefix: str, sid: int, q: dict) -> None:
@@ -414,7 +516,7 @@ def start_runner(prefix: str, sid: int, q: dict) -> None:
 
 
 def reset_runner(prefix: str) -> None:
-    for k in ("_sid", "_q", "_res", "_summary"):
+    for k in ("_sid", "_q", "_res", "_summary", "_presence", "_pending_frame"):
         st.session_state.pop(f"{prefix}{k}", None)
 
 
@@ -423,7 +525,7 @@ def runner_active(prefix: str) -> bool:
 
 
 def session_summary_view(s: dict) -> None:
-    st.markdown("### Session summary")
+    st.markdown("### 🏁 Session summary")
     if s.get("average") is not None:
         st.markdown(f'<div class="am-total">{s["average"]:g}<small> / 100 average over {s.get("answers", 0)} answers</small></div>',
                     unsafe_allow_html=True)
@@ -431,10 +533,10 @@ def session_summary_view(s: dict) -> None:
         st.markdown(f"**{s['headline']}**")
     c1, c2 = st.columns(2)
     with c1:
-        bullet_list("Strengths", s.get("strengths", []))
+        bullet_list("💪 Strengths", s.get("strengths", []))
     with c2:
-        bullet_list("To work on", s.get("weaknesses", []))
-    bullet_list("Next steps", s.get("next_steps", []))
+        bullet_list("🎯 To work on", s.get("weaknesses", []))
+    bullet_list("🧭 Next steps", s.get("next_steps", []))
     if s.get("readiness_comment"):
         st.info(s["readiness_comment"])
 

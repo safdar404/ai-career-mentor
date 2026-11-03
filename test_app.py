@@ -10,11 +10,16 @@ from orchestrator import Orchestrator
 from fake_provider import FakeProvider
 
 APP = str(Path(__file__).resolve().parent / "app.py")
-PAGES = ["Dashboard", "Live AI Interview", "English Communication Lab", "Technical Assessment", "Python Coding Lab",
-         "Generative AI Academy", "Agentic AI Academy", "Project Presentation Trainer", "HR Interview Simulator",
-         "Weakness & Gap Analysis", "Learning Roadmap", "Performance Reports", "Settings"]
+PAGES = ["📊 Dashboard", "🎤 Live AI Interview", "🗣️ English Communication Lab", "🧪 Technical Assessment",
+         "🐍 Python Coding Lab", "🤖 Generative AI Academy", "🕸️ Agentic AI Academy", "📽️ Project Presentation Trainer",
+         "🤝 HR Interview Simulator", "🎯 Weakness & Gap Analysis", "🗺️ Learning Roadmap", "📈 Performance Reports",
+         "🗂️ Conversation History", "⚙️ Settings"]
 
 _real_init = db.init_db
+
+
+def page_label(name: str) -> str:
+    return next(p for p in PAGES if p.endswith(" " + name))
 
 
 @pytest.fixture
@@ -33,7 +38,7 @@ def app(tmp_path, monkeypatch):
 
 def _button(at, label):
     for b in at.button:
-        if b.label == label:
+        if b.label == label or b.label.endswith(" " + label):  # labels carry a leading emoji
             return b
     raise AssertionError(f"No button {label!r}; have {[b.label for b in at.button]}")
 
@@ -45,7 +50,7 @@ def test_onboarding_without_user(tmp_path, monkeypatch):
     st.cache_resource.clear()
     at = AppTest.from_file(APP, default_timeout=30).run()
     assert not at.exception
-    assert at.text_input[0].value == "Muhammad Safdar"
+    at.text_input[0].set_value("Muhammad Safdar")
     _button(at, "Start training").click().run()
     assert not at.exception
     assert at.session_state["user_id"]
@@ -62,7 +67,7 @@ def test_every_page_renders(app, page):
 def test_live_interview_end_to_end(app):
     at, user = app
     at.run()
-    at.sidebar.radio[0].set_value("Live AI Interview").run()
+    at.sidebar.radio[0].set_value(page_label("Live AI Interview")).run()
     _button(at, "Start interview").click().run()
     assert not at.exception
     assert any("How would you explain" in m.value for m in at.markdown)
@@ -76,7 +81,7 @@ def test_live_interview_end_to_end(app):
     assert not at.exception
     assert any("Session summary" in m.value for m in at.markdown)
     # dashboard now shows real numbers
-    at.sidebar.radio[0].set_value("Dashboard").run()
+    at.sidebar.radio[0].set_value(page_label("Dashboard")).run()
     assert not at.exception
     assert db.evaluations_for_user(user.id)
 
@@ -84,7 +89,7 @@ def test_live_interview_end_to_end(app):
 def test_english_lab_retry(app):
     at, _ = app
     at.run()
-    at.sidebar.radio[0].set_value("English Communication Lab").run()
+    at.sidebar.radio[0].set_value(page_label("English Communication Lab")).run()
     _button(at, "Start conversation").click().run()
     at.text_area[0].set_value("It was good, I am went to my village.")
     _button(at, "Submit answer").click().run()
@@ -99,23 +104,23 @@ def test_english_lab_retry(app):
 def test_coding_and_projects_and_reports(app):
     at, user = app
     at.run()
-    at.sidebar.radio[0].set_value("Python Coding Lab").run()
+    at.sidebar.radio[0].set_value(page_label("Python Coding Lab")).run()
     _button(at, "Generate challenge").click().run()
     _button(at, "Submit for review").click().run()
     assert not at.exception
     assert any("not executed" in s.value for s in at.success) or at.error
 
-    at.sidebar.radio[0].set_value("Project Presentation Trainer").run()
+    at.sidebar.radio[0].set_value(page_label("Project Presentation Trainer")).run()
     at.text_input[0].set_value("GIS RAG assistant")
     _button(at, "Save project").click().run()
     assert not at.exception
     assert db.list_projects(user.id)
 
-    at.sidebar.radio[0].set_value("Learning Roadmap").run()
+    at.sidebar.radio[0].set_value(page_label("Learning Roadmap")).run()
     _button(at, "Create my 90-day roadmap").click().run()
     assert not at.exception and db.active_roadmap(user.id)
 
-    at.sidebar.radio[0].set_value("Performance Reports").run()
+    at.sidebar.radio[0].set_value(page_label("Performance Reports")).run()
     _button(at, "Generate this week's report").click().run()
     assert not at.exception
     assert db.list_reports(user.id)

@@ -6,10 +6,10 @@ from components import (interview_runner, lesson_view, page_header, prefs, run_s
                           topic_label)
 
 ACADEMIES = {
-    "genai": ("Generative AI Academy",
+    "genai": ("🤖 Generative AI Academy",
               "Learn one concept at a time: a simple explanation, an analogy, an example. Then explain it back in "
               "your own words and get scored."),
-    "agentic": ("Agentic AI Academy",
+    "agentic": ("🕸️ Agentic AI Academy",
                 "Agents, tool calling, memory, orchestration and safety, taught simply and then checked with "
                 "explain-it-back questions."),
 }
@@ -30,7 +30,7 @@ def render(user, orch_getter, group: str) -> None:
             level = c1.selectbox("Level", DIFFICULTIES[:3])
             urdu = c2.checkbox("Add a short Roman Urdu summary", value=p["urdu_support"] == "true",
                                help="Use only when a concept is hard to follow. The goal is English-only.")
-            go = st.form_submit_button("Teach me", type="primary")
+            go = st.form_submit_button("📚 Teach me", type="primary")
         if go:
             out = run_safely("Your mentor is preparing the lesson...",
                              lambda: orch.start_lesson(user.id, topic, level, urdu))

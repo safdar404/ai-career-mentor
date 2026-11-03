@@ -316,9 +316,59 @@ def add_message(user_id: int, session_id: int | None, role: str, content: str, a
         s.add(Conversation(user_id=user_id, session_id=session_id, role=role, content=content, agent=agent))
 
 
-def get_messages(session_id: int) -> list[Conversation]:
+META_AGENTS = ("feedback", "presence_coach")  # coaching notes saved in the transcript, not dialogue turns
+
+
+def get_messages(session_id: int, include_meta: bool = False) -> list[Conversation]:
+    """Dialogue for a session. Coaching notes (scores, presence tips) are left out unless include_meta."""
     with session_scope() as s:
-        return list(s.scalars(select(Conversation).where(Conversation.session_id == session_id).order_by(Conversation.id)))
+        stmt = select(Conversation).where(Conversation.session_id == session_id)
+        if not include_meta:
+            stmt = stmt.where(Conversation.agent.not_in(META_AGENTS))
+        return list(s.scalars(stmt.order_by(Conversation.id)))
+
+
+def conversation_index(user_id: int, module: str | None = None, search: str = "", limit: int = 200) -> list[dict]:
+    """Sessions that have a saved conversation, newest first, with message counts and a preview."""
+    search = (search or "").strip()
+    with session_scope() as s:
+        stmt = select(InterviewSession).where(InterviewSession.user_id == user_id)
+        if module:
+            stmt = stmt.where(InterviewSession.module == module)
+        if search:
+            hits = select(Conversation.session_id).where(Conversation.user_id == user_id,
+                                                         Conversation.content.ilike(f"%{search[:200]}%"))
+            stmt = stmt.where(InterviewSession.id.in_(hits))
+        sessions = list(s.scalars(stmt.order_by(InterviewSession.started_at.desc()).limit(limit)))
+        out = []
+        for sess in sessions:
+            msgs = list(s.scalars(select(Conversation).where(Conversation.session_id == sess.id)
+                                  .order_by(Conversation.id)))
+            if not msgs:
+                continue
+            first = next((m.content for m in msgs if m.role == "assistant" and m.agent not in META_AGENTS), msgs[0].content)
+            out.append({"id": sess.id, "module": sess.module, "category": sess.category, "status": sess.status,
+                        "started_at": sess.started_at, "ended_at": sess.ended_at,
+                        "messages": sum(1 for m in msgs if m.agent not in META_AGENTS),
+                        "answers": sum(1 for m in msgs if m.role == "user"),
+                        "average": (sess.summary or {}).get("average"), "preview": first[:160]})
+        return out
+
+
+def delete_session(session_id: int, user_id: int) -> bool:
+    """Delete one session and everything recorded in it. Only the owner can delete."""
+    with session_scope() as s:
+        sess = s.get(InterviewSession, session_id)
+        if sess is None or sess.user_id != user_id:
+            return False
+        q_ids = [x.id for x in s.scalars(select(InterviewQuestion).where(InterviewQuestion.session_id == session_id))]
+        for r in s.scalars(select(AnswerEvaluation).where(AnswerEvaluation.question_id.in_(q_ids or [-1]))):
+            s.delete(r)
+        for model in (InterviewQuestion, Conversation):
+            for r in s.scalars(select(model).where(model.session_id == session_id)):
+                s.delete(r)
+        s.delete(sess)
+        return True
 
 
 def add_question(session_id: int, question: str, topic: str, kind: str, difficulty: str, agent: str, extra: dict | None = None) -> InterviewQuestion:
@@ -596,6 +646,7 @@ def export_user_data(user_id: int) -> dict:
         }
         for name, model in simple.items():
             data[name] = [_row(r) for r in s.scalars(select(model).where(model.user_id == user_id))]
+        data["settings"] = [r for r in data["settings"] if r.get("key") != "pin_hash"]
         data["interview_questions"] = [_row(r) for r in s.scalars(
             select(InterviewQuestion).where(InterviewQuestion.session_id.in_(session_ids or [-1])))]
         return data
@@ -617,3 +668,42 @@ def delete_user_data(user_id: int) -> None:
         user = s.get(User, user_id)
         if user:
             s.delete(user)
+
+
+# --------------------------------------------------------------------------- profile PIN (optional)
+
+def _pin_hash(pin: str, salt: bytes) -> str:
+    import hashlib
+
+    return hashlib.pbkdf2_hmac("sha256", pin.encode(), salt, 200_000).hex()
+
+
+def set_pin(user_id: int, pin: str) -> None:
+    """Store a salted PBKDF2 hash of a 4-8 digit PIN. An empty PIN removes protection."""
+    import os
+
+    pin = (pin or "").strip()
+    if not pin:
+        set_setting(user_id, "pin_hash", "")
+        return
+    if not (pin.isdigit() and 4 <= len(pin) <= 8):
+        raise ValueError("The PIN must be 4 to 8 digits.")
+    salt = os.urandom(16)
+    set_setting(user_id, "pin_hash", f"{salt.hex()}${_pin_hash(pin, salt)}")
+
+
+def has_pin(user_id: int) -> bool:
+    return bool(get_setting(user_id, "pin_hash", ""))
+
+
+def check_pin(user_id: int, pin: str) -> bool:
+    import hmac
+
+    stored = get_setting(user_id, "pin_hash", "")
+    if not stored:
+        return True
+    salt_hex, _, digest = stored.partition("$")
+    try:
+        return hmac.compare_digest(_pin_hash((pin or "").strip(), bytes.fromhex(salt_hex)), digest)
+    except ValueError:
+        return False

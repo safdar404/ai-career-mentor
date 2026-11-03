@@ -18,7 +18,7 @@ def _project_dict(p) -> dict:
 
 
 def render(user, orch_getter) -> None:
-    page_header("Project Presentation Trainer",
+    page_header("📽️ Project Presentation Trainer",
                 "Describe your real projects once, then practise explaining them in 30 seconds to 5 minutes and "
                 "defend them against a senior interviewer.")
     tab_projects, tab_pitch, tab_grill = st.tabs(["My projects", "Pitch practice", "Tough questions"])
@@ -36,7 +36,7 @@ def render(user, orch_getter) -> None:
                     vals[k] = st.text_input(label, value=default, placeholder=ph, max_chars=200)
                 else:
                     vals[k] = st.text_area(label, value=default, placeholder=ph, height=90, max_chars=4000)
-            saved = st.form_submit_button("Save project", type="primary")
+            saved = st.form_submit_button("💾 Save project", type="primary")
         if saved:
             try:
                 db.save_project(user.id, current.id if current else None, **vals)
@@ -44,7 +44,7 @@ def render(user, orch_getter) -> None:
                 st.rerun()
             except ValueError as exc:
                 st.warning(str(exc))
-        if current and st.button("Delete this project"):
+        if current and st.button("🗑️ Delete this project"):
             db.delete_project(current.id, user.id)
             st.rerun()
         st.caption("Be accurate. The interviewer checks your answers against these details, and the coach will "
@@ -63,7 +63,7 @@ def render(user, orch_getter) -> None:
                         c1, c2 = st.columns(2)
                         title = c1.selectbox("Project", [p.title for p in projects])
                         length = c2.selectbox("Length", list(PITCH_LENGTHS))
-                        go = st.form_submit_button("Start pitch", type="primary")
+                        go = st.form_submit_button("🎬 Start pitch", type="primary")
                     if go:
                         proj = next(p for p in projects if p.title == title)
                         out = run_safely("Setting up...", lambda: orch.start_pitch(
@@ -94,7 +94,7 @@ def render(user, orch_getter) -> None:
                         c1, c2 = st.columns(2)
                         difficulty = c1.selectbox("Difficulty", DIFFICULTIES, index=1)
                         n = c2.slider("Questions", 3, 12, 6)
-                        go = st.form_submit_button("Start", type="primary")
+                        go = st.form_submit_button("🚀 Start", type="primary")
                     if go:
                         proj = next(p for p in projects if p.title == title)
                         out = run_safely("The interviewer is reading your project...", lambda: orch.start_session(

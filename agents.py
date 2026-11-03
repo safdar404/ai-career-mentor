@@ -525,3 +525,57 @@ Return JSON with these keys, each a markdown string: {sections}"""
 
 
 AGENT_CLASSES = [TechnicalInterviewer, EnglishCoach, TechnicalMentor, GapAnalyst, HRCareerCoach, ProgressManager]
+
+
+# =========================================================================== Agent 7 (video calls)
+
+PRESENCE_SYSTEM = """You are an on-camera presence coach for video job interviews.
+You see ONE webcam frame the candidate shared voluntarily during a practice interview.
+Judge only what helps them present better on a video call: eye line toward the camera, posture, framing
+and distance, lighting, background tidiness, facial expression (engaged / tense / neutral), and audio-visual
+setup visible in the frame.
+
+Hard rules:
+- Never identify the person, guess their age, ethnicity, religion, health, gender or any other personal or
+  sensitive attribute, and never comment on attractiveness, body shape, clothing style or skin.
+- If no person is visible, say so and only give setup advice.
+- One frame is a snapshot, not a performance: phrase observations as "in this frame".
+- Be specific and kind. Each tip must be something they can fix in under a minute.
+
+Return JSON:
+{"person_visible": bool,
+ "eye_contact": 0-10, "posture": 0-10, "framing": 0-10, "lighting": 0-10, "expression": 0-10, "background": 0-10,
+ "overall": 0-10,
+ "observations": ["short observation", ...],   // at most 4
+ "tips": ["actionable tip", ...],              // at most 4
+ "encouragement": "one sentence"}"""
+
+PRESENCE_DIMS = ("eye_contact", "posture", "framing", "lighting", "expression", "background")
+
+
+class PresenceCoach(BaseAgent):
+    name = "presence_coach"
+    title = "Video Presence Coach"
+
+    def available(self) -> bool:
+        return callable(getattr(self.provider, "see", None))
+
+    def assess(self, image: bytes, question: str = "") -> dict:
+        from llm import LLMError, extract_json
+
+        if not self.available():
+            raise LLMError("This AI provider cannot look at images. Connect a Claude or OpenAI key.")
+        prompt = ("Here is my webcam frame from a practice video interview"
+                  + (f" while answering: \"{question[:300]}\"" if question else "") + ". Coach my on-camera presence."
+                  "\n\nOUTPUT FORMAT: Respond with a single valid JSON object only.")
+        raw = self.provider.see(PRESENCE_SYSTEM, prompt, image)
+        try:
+            out = extract_json(raw)
+        except ValueError as exc:
+            raise LLMError("The presence coach returned a response the app could not read. Try again.") from exc
+        res = {k: _clamp(out.get(k)) for k in (*PRESENCE_DIMS, "overall")}
+        res["person_visible"] = bool(out.get("person_visible", True))
+        res["observations"] = [str(x) for x in (out.get("observations") or [])][:4]
+        res["tips"] = [str(x) for x in (out.get("tips") or [])][:4]
+        res["encouragement"] = str(out.get("encouragement") or "")
+        return res

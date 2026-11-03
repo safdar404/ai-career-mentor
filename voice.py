@@ -21,7 +21,7 @@ import io
 import json
 from typing import Protocol
 
-from config import Settings, get_logger, settings
+from config import Settings, get_logger, resolve, settings
 from llm import LLMError
 
 log = get_logger(__name__)
@@ -43,6 +43,7 @@ def stt_available(cfg: Settings = settings) -> bool:
 
 
 def transcribe(audio_bytes: bytes, filename: str = "answer.wav", cfg: Settings = settings) -> str:
+    cfg = resolve(cfg)
     if not cfg.has_openai:
         raise LLMError("Voice answers need OPENAI_API_KEY for transcription. Type your answer instead, or add the key.")
     if not audio_bytes:
@@ -66,6 +67,7 @@ def transcribe(audio_bytes: bytes, filename: str = "answer.wav", cfg: Settings =
 
 
 def openai_tts(text: str, voice: str = "alloy", cfg: Settings = settings) -> bytes:
+    cfg = resolve(cfg)
     if not cfg.has_openai:
         raise LLMError("OpenAI voice needs OPENAI_API_KEY. Switch to the browser voice in Settings.")
     import openai
@@ -79,23 +81,47 @@ def openai_tts(text: str, voice: str = "alloy", cfg: Settings = settings) -> byt
         raise LLMError("Could not generate speech audio.") from exc
 
 
-def browser_tts_html(text: str, accent: str, autoplay: bool = True, label: str = "Play", rate: float = 0.95) -> str:
-    """A small self-contained player that uses the browser's speech synthesis."""
-    lang = ACCENT_LANG.get(accent, "en-GB")
-    # json.dumps alone is not safe inside <script>: model text containing "</script>" could break out.
-    # Escaping every "<", ">" and "&" as a unicode escape keeps it a plain JS string.
-    payload = json.dumps(text).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+_PLAYER_CSS = """
+body { margin:0; font-family:'IBM Plex Sans', system-ui, sans-serif; background:transparent; }
+.row { display:flex; align-items:center; gap:10px; }
+button { background:#18224A; color:#E7EBF7; border:1px solid #33407A; border-radius:999px; padding:6px 14px;
+  cursor:pointer; font-size:13.5px; transition: background .15s, border-color .15s; }
+button:hover { background:#222E62; border-color:#8B5CF6; }
+button.ghost { background:transparent; color:#A3ACCB; }
+#info { color:#A3ACCB; font-size:12px; }
+"""
+
+
+def _player_shell(controls_js: str, label: str, with_avatar: bool, size: int = 40) -> str:
+    from avatar import AVATAR_CSS, avatar_svg
+
+    face = avatar_svg(size, "idle", "AI interviewer") if with_avatar else ""
     btn = html.escape(label)
-    return f"""
-<div style="font-family: 'IBM Plex Sans', system-ui, sans-serif;">
-  <button id="speak" style="background:#1B2650;color:#E7EBF7;border:1px solid #3B4A85;border-radius:8px;
-     padding:6px 14px;cursor:pointer;font-size:14px;">&#9654; {btn}</button>
-  <button id="stop" style="background:transparent;color:#9AA3C2;border:1px solid #2A3566;border-radius:8px;
-     padding:6px 12px;cursor:pointer;font-size:14px;margin-left:6px;">Stop</button>
-  <span id="info" style="color:#9AA3C2;font-size:12px;margin-left:8px;"></span>
+    return f"""<style>{AVATAR_CSS}{_PLAYER_CSS}</style>
+<div class="row">{face}
+  <button id="speak" aria-label="{btn}">&#9654; {btn}</button>
+  <button id="stop" class="ghost" aria-label="Stop">&#9632; Stop</button>
+  <span id="info" aria-live="polite"></span>
 </div>
 <script>
-const text = {payload};
+const av = document.querySelector('.am-av');
+function setState(s) {{ if (av) av.className = 'am-av ' + s; }}
+{controls_js}
+</script>"""
+
+
+def _js_string(text: str) -> str:
+    # json.dumps alone is not safe inside <script>: model text containing "</script>" could break out.
+    # Escaping every "<", ">" and "&" as a unicode escape keeps it a plain JS string.
+    return json.dumps(text).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
+def browser_tts_html(text: str, accent: str, autoplay: bool = True, label: str = "Play", rate: float = 0.95,
+                     with_avatar: bool = True) -> str:
+    """Browser speech synthesis with an avatar that animates while it talks."""
+    lang = ACCENT_LANG.get(accent, "en-GB")
+    js = f"""
+const text = {_js_string(text)};
 const lang = "{lang}";
 function pickVoice() {{
   const voices = window.speechSynthesis.getVoices();
@@ -107,17 +133,38 @@ function speak() {{
   const u = new SpeechSynthesisUtterance(text);
   u.lang = lang; u.rate = {rate};
   const v = pickVoice();
-  if (v) {{ u.voice = v; document.getElementById('info').textContent = v.name; }}
+  if (v) {{ u.voice = v; document.getElementById('info').textContent = '🔊 ' + v.name; }}
   else {{ document.getElementById('info').textContent = 'No ' + lang + ' voice installed; using default.'; }}
+  u.onstart = () => setState('speaking');
+  u.onend = () => setState('idle');
+  u.onerror = () => setState('idle');
   window.speechSynthesis.speak(u);
 }}
 document.getElementById('speak').onclick = speak;
-document.getElementById('stop').onclick = () => window.speechSynthesis.cancel();
+document.getElementById('stop').onclick = () => {{ window.speechSynthesis.cancel(); setState('idle'); }};
 if ({str(autoplay).lower()}) {{
   if (window.speechSynthesis.getVoices().length) speak();
   else window.speechSynthesis.onvoiceschanged = () => {{ window.speechSynthesis.onvoiceschanged = null; speak(); }};
 }}
-</script>"""
+"""
+    return _player_shell(js, label, with_avatar)
+
+
+def audio_player_html(audio: bytes, autoplay: bool = True, label: str = "Play", mime: str = "audio/mpeg",
+                      with_avatar: bool = True) -> str:
+    """OpenAI TTS audio with the same animated avatar, synced to play/pause."""
+    import base64
+
+    src = f"data:{mime};base64,{base64.b64encode(audio).decode()}"
+    js = f"""
+const a = new Audio("{src}");
+a.onplay = () => setState('speaking');
+a.onpause = a.onended = () => setState('idle');
+document.getElementById('speak').onclick = () => {{ a.currentTime = 0; a.play().catch(() => {{}}); }};
+document.getElementById('stop').onclick = () => a.pause();
+if ({str(autoplay).lower()}) a.play().catch(() => {{ document.getElementById('info').textContent = 'Press play to listen.'; }});
+"""
+    return _player_shell(js, label, with_avatar)
 
 
 class PronunciationProvider(Protocol):

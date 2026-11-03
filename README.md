@@ -26,6 +26,9 @@ Without any API key, the app still opens, and the dashboard, roadmap, projects a
 
 ### Which keys do I need?
 
+You can paste keys **inside the app** (🔑 API keys in the sidebar, or ⚙️ Settings). Each visitor's key lives only in their own browser session's memory: it is never written to the database, disk or logs, and is gone when the tab closes or they press "Forget my keys". A key set on the server (`.env` / Streamlit Secrets) still works as a fallback for everyone.
+
+
 | Key | Enables |
 |---|---|
 | `ANTHROPIC_API_KEY` | All coaching with Claude (default provider) |
@@ -50,7 +53,16 @@ One key is enough. With both, you choose the provider in **Settings**, and voice
 | Weakness & Gap Analysis | Technical, communication and professional gaps; seen twice = priority; revision sessions; industry topics not yet assessed |
 | Learning Roadmap | 90 days in six phases, with "you are here" tracking; **Adjust to my results** rewrites it from your data |
 | Performance Reports | Area charts, communication skills, weekly reports compared with the previous week |
-| Settings | Profile, provider, accent, voice, interviewer style, Urdu support, export or delete your data |
+| 🗂️ Conversation History | Every interview, lesson and practice conversation is saved: search inside them, replay them as chat bubbles, download as Markdown/JSON, or delete one |
+| ⚙️ Settings | Profile, API keys, provider, accent, voice, interviewer style, Urdu support, profile PIN, export or delete your data |
+
+### 💬 🎙️ 🎥 Conversation modes
+
+Live interviews, the HR simulator and the English Lab each have a one-click mode switch:
+
+- **💬 Chat**: the animated AI agent asks in a chat bubble; you type, or record with Whisper (OpenAI key).
+- **🎙️ Voice call**: the agent speaks each question (its mouth moves while it talks) and you answer by voice using free browser speech recognition (Chrome/Edge). **Hands-free** mode starts listening after each question and sends after a pause.
+- **🎥 Video call**: the same, with your live camera beside the agent and a microphone meter. With **📸 presence feedback** on, one camera frame goes with your answer and the *Video Presence Coach* scores eye contact, posture, framing, lighting, expression and background, with quick fixes. The frame is used for that single call and never stored.
 
 ### The scorecard
 
@@ -105,11 +117,15 @@ orchestrator.py     Session flow, scoring, teaching, adaptive difficulty
 analytics.py        Deterministic stats for dashboard and reports
 topics.py           Fixed topic taxonomy
 voice.py            Speech-to-text, text-to-speech
-theme.py            Custom CSS
+theme.py            "AI Aurora" theme: violet -> indigo -> cyan on deep navy
+avatar.py           Animated SVG agent: logo, chat bubbles, speaking/listening/thinking
+keys.py             In-app API key entry (session only) and key checks
+videocall.py        Voice/video call stage: camera, speech recognition, snapshot
+history.py          Conversation History page
 components.py       Scorecard, feedback views, answer input, interview runner
 dashboard.py, interview.py, english.py, coding.py, academy.py, projects.py,
 gaps.py, roadmap.py, reports.py, settings_page.py     One module per page
-test_*.py, fake_provider.py                           33 tests (no API calls)
+test_*.py, fake_provider.py                           48 tests (no API calls)
 .streamlit/config.toml                                Dark theme
 ```
 
@@ -138,7 +154,7 @@ To add real-time voice later, implement a new provider beside `voice.py`. For ph
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q
+python -m pytest -q   # 48 tests
 ```
 
 The tests use a deterministic fake model, so they need no API keys and cost nothing. They cover:
@@ -211,12 +227,13 @@ Endpoints: `GET /health` (public), `GET /users`, `GET /users/{id}/stats`, `GET /
 
 ## Security
 
-- API keys are read only from environment variables. They are never stored in the database, shown in the UI, or written to logs; a log filter redacts them if they appear.
+- API keys come from the server environment or are pasted by each visitor into the app. Pasted keys live only in that browser session's memory. No key is ever stored in the database, shown in the UI, or written to logs; a log filter redacts them if they appear.
+- Camera frames for presence feedback are sent only when the learner presses Send (or 📸), are used for one AI call, and are never saved. The presence coach is told never to identify people or comment on personal attributes.
 - Answers are length-limited and wrapped as untrusted data in agent prompts, so instructions inside an answer are ignored.
 - AI-generated text played by the browser voice is escaped before being placed in the player, which prevents script injection.
 - Each browser session is bound to one user, and the orchestrator rejects answers to questions from another user's session.
 - The Docker image runs as a non-root user, and the REST API binds to localhost only.
-- This is a single-machine training app, not a multi-tenant SaaS: there are no passwords on profiles. Before exposing it publicly, put it behind authentication (a reverse proxy with login, or Streamlit's authentication).
+- Profiles can have an optional 4-8 digit PIN (salted PBKDF2 hash), so other people using the same link cannot open your profile or conversation history. This is a training app, not a multi-tenant SaaS. Before exposing it publicly, put it behind authentication (a reverse proxy with login, or Streamlit's authentication).
 
 ---
 
@@ -225,7 +242,7 @@ Endpoints: `GET /health` (public), `GET /users`, `GET /users/{id}/stats`, `GET /
 - **Pronunciation and speaking speed are not measured.** Transcription returns text only. "Words to practise" are suggestions based on your wording. Pitch length is estimated from word count at about 130 words per minute.
 - **Code is not executed.** Running untrusted code safely needs a sandbox. The review reasons about your code statically and says so; run the test cases yourself.
 - **AI scores are judgements, not measurements.** They are consistent enough to track progress, but they vary between runs and between providers. Look at trends over many answers, not single scores.
-- **Verified in development:** all 33 automated tests pass and the server boots. **Not yet verified:** live calls with real API keys, the Docker build, PostgreSQL, and microphone recording in a real browser. Run the manual checklist above after adding your key.
+- **Verified in development:** all 48 automated tests pass and the server boots. The voice/video stage was also driven end to end in headless Chrome with a simulated camera. **Not yet verified:** live calls with real API keys, the Docker build, PostgreSQL, and real-microphone speech recognition. Run the manual checklist above after adding your key.
 
 ---
 
@@ -236,7 +253,7 @@ Endpoints: `GET /health` (public), `GET /users`, `GET /users/{id}/stats`, `GET /
 | `ANTHROPIC_API_KEY` | (empty) | Claude access |
 | `OPENAI_API_KEY` | (empty) | OpenAI access and voice |
 | `DEFAULT_PROVIDER` | `anthropic` | Provider used when both keys exist |
-| `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | Claude model |
+| `ANTHROPIC_MODEL` | `claude-sonnet-5-5` | Claude model (Claude 5 models reject `temperature`, so the app leaves it out for them) |
 | `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model |
 | `OPENAI_STT_MODEL` | `whisper-1` | Transcription model |
 | `OPENAI_TTS_MODEL` | `tts-1` | Voice model |

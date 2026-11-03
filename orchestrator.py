@@ -18,7 +18,7 @@ from dataclasses import asdict
 from typing import Any
 
 import analytics, db
-from agents import (EnglishCoach, GapAnalyst, HRCareerCoach, LearnerContext, ProgressManager, SessionSpec,
+from agents import (EnglishCoach, GapAnalyst, HRCareerCoach, LearnerContext, PresenceCoach, ProgressManager, SessionSpec,
                      TechnicalInterviewer, TechnicalMentor)
 from config import get_logger, settings
 from llm import LLMError, LLMProvider, get_provider
@@ -48,6 +48,9 @@ def validate_answer(answer: str) -> str:
     return answer
 
 
+SPOKEN_MODES = {"voice", "video"}
+
+
 class Orchestrator:
     def __init__(self, provider: LLMProvider | None = None, provider_name: str | None = None):
         self.provider = provider or get_provider(provider_name)
@@ -57,6 +60,7 @@ class Orchestrator:
         self.gaps = GapAnalyst(self.provider)
         self.hr = HRCareerCoach(self.provider)
         self.progress = ProgressManager(self.provider)
+        self.presence = PresenceCoach(self.provider)
 
     # ------------------------------------------------------------------ shared context
 
@@ -160,7 +164,7 @@ class Orchestrator:
             raise ValidationError("This question does not belong to the current session.")
         spec = self._spec(sess)
         ctx = self.context(sess.user_id)
-        voice = input_mode == "voice"
+        voice = input_mode in SPOKEN_MODES
         db.add_message(sess.user_id, session_id, "user", answer)
 
         evaluator = self.hr if q.agent == HRCareerCoach.name else self.interviewer
@@ -181,6 +185,9 @@ class Orchestrator:
 
     def _finish(self, sess, spec, ctx, q, answer, input_mode, scores, technical, communication, extra) -> dict:
         total = db.score_total(scores)
+        improved = (technical or {}).get("improved_answer") or (communication or {}).get("natural_version") or ""
+        db.add_message(sess.user_id, sess.id, "assistant",
+                       f"Score: {total:g}/100" + (f"\n\nA stronger answer: {improved}" if improved else ""), "feedback")
         is_technical = not q.topic.startswith(("comm.", "pro."))
         ev = db.save_evaluation(sess.user_id, q.id, answer, input_mode, scores, total, technical or {},
                                 communication or {}, q.topic, count_technical=is_technical and technical is not None)
@@ -286,7 +293,7 @@ class Orchestrator:
         if sess is None or q is None or q.session_id != session_id:
             raise ValidationError("This prompt does not belong to the current session.")
         db.add_message(sess.user_id, session_id, "user", answer)
-        comm = self.english.evaluate(q.question, answer, input_mode == "voice", register=sess.category)
+        comm = self.english.evaluate(q.question, answer, input_mode in SPOKEN_MODES, register=sess.category)
         scores: dict[str, Any] = {k: None for k in db.TECH_DIMS}
         scores["overall_interview_performance"] = None
         scores.update({k: comm[k] for k in db.COMM_DIMS})
@@ -318,6 +325,7 @@ class Orchestrator:
                                  category="Coding", planned_questions=1, context={"topic": topic})
         q = db.add_question(sess.id, ch["title"] + "\n\n" + ch["problem"], topic, "new", difficulty,
                             TechnicalMentor.name, {"challenge": ch})
+        db.add_message(user_id, sess.id, "assistant", q.question, TechnicalMentor.name)
         return sess.id, {"id": q.id, "challenge": ch}
 
     def submit_code(self, session_id: int, question_id: int, code: str) -> dict:
@@ -330,6 +338,7 @@ class Orchestrator:
         q = db.get_question(question_id)
         if sess is None or q is None or q.session_id != session_id:
             raise ValidationError("This challenge does not belong to the current session.")
+        db.add_message(sess.user_id, session_id, "user", code)
         syntax_error = check_syntax(code)
         review = self.mentor.review_code((q.extra or {}).get("challenge", {}), code, syntax_error)
         scores: dict[str, Any] = {"technical_accuracy": review["correctness"],
@@ -344,6 +353,21 @@ class Orchestrator:
         result["review"] = review
         return result
 
+    # ------------------------------------------------------------------ Video presence
+
+    def presence_check(self, session_id: int, image: bytes, question: str = "") -> dict:
+        """Coach on-camera presence from one webcam frame. The image itself is never stored."""
+        sess = db.get_session(session_id)
+        if sess is None:
+            raise ValidationError("Session not found.")
+        if not image or len(image) > 4 * 1024 * 1024:
+            raise ValidationError("The camera snapshot was empty or too large.")
+        res = self.presence.assess(image, question)
+        tips = "\n".join(f"- {t}" for t in res["tips"])
+        db.add_message(sess.user_id, session_id, "assistant",
+                       f"On-camera presence: {res['overall']}/10\n{tips}".strip(), PresenceCoach.name)
+        return res
+
     # ------------------------------------------------------------------ Project pitch
 
     def start_pitch(self, user_id: int, project: dict, length_label: str, region: str) -> tuple[int, dict]:
@@ -356,6 +380,7 @@ class Orchestrator:
                   f"what you built, how it works, and the result.")
         q = db.add_question(sess.id, prompt, "pro.project_explanation", "new", "Intermediate",
                             TechnicalInterviewer.name, {"target_seconds": seconds})
+        db.add_message(user_id, sess.id, "assistant", prompt, TechnicalInterviewer.name)
         return sess.id, {"id": q.id, "question": prompt, "target_seconds": seconds}
 
     # ------------------------------------------------------------------ Reports & roadmap

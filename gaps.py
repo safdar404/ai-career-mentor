@@ -10,7 +10,7 @@ CATEGORY_TITLES = {"technical": "Technical gaps", "communication": "Communicatio
 
 
 def render(user, orch_getter) -> None:
-    page_header("Weakness & Gap Analysis",
+    page_header("🎯 Weakness & Gap Analysis",
                 "Every weakness found in your answers, grouped and ranked. A weakness seen twice becomes a priority.")
 
     prefix = "rev"
@@ -32,7 +32,7 @@ def render(user, orch_getter) -> None:
         st.markdown("### Revision")
         st.markdown("Practise your priority weaknesses with fresh questions.")
         n = st.slider("Questions", 3, 10, 5, key="rev-n")
-        if st.button("Start revision session", type="primary"):
+        if st.button("🔁 Start revision session", type="primary"):
             orch = orch_getter()
             if orch:
                 topics = orch.revision_topics(user.id)
@@ -62,7 +62,7 @@ def render(user, orch_getter) -> None:
                     if g.examples:
                         with st.expander("Evidence from your answers"):
                             st.markdown("\n".join(f"- {esc(e)}" for e in g.examples))
-                    if st.button("Mark as resolved", key=f"res-{g.id}"):
+                    if st.button("✅ Mark as resolved", key=f"res-{g.id}"):
                         db.set_gap_status(g.id, user.id, "resolved")
                         st.rerun()
             st.caption("A resolved weakness reopens automatically if it appears again.")

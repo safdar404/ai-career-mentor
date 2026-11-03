@@ -15,7 +15,7 @@ def _reset() -> None:
 
 
 def render(user, orch_getter) -> None:
-    page_header("Python Coding Lab",
+    page_header("🐍 Python Coding Lab",
                 "AI-generated challenges with a senior-engineer code review. Your code is syntax-checked, then "
                 "reviewed. It is not executed, so run the test cases yourself.")
     orch = orch_getter()
@@ -27,7 +27,7 @@ def render(user, orch_getter) -> None:
             c1, c2 = st.columns(2)
             topic = c1.selectbox("Topic", TOPICS, format_func=topic_label)
             difficulty = c2.selectbox("Difficulty", DIFFICULTIES[:3])
-            go = st.form_submit_button("Generate challenge", type="primary")
+            go = st.form_submit_button("⚡ Generate challenge", type="primary")
         if go:
             out = run_safely("Writing a challenge for you...", lambda: orch.start_coding(user.id, topic, difficulty))
             if out:
@@ -55,14 +55,14 @@ def render(user, orch_getter) -> None:
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("Submit for review", type="primary"):
+        if st.button("✅ Submit for review", type="primary"):
             out = run_safely("A senior engineer is reviewing your code...",
                              lambda: orch.submit_code(sid, ch_wrap["id"], st.session_state.get(code_key, "")))
             if out:
                 st.session_state["code_res"] = out
                 st.rerun()
     with c2:
-        if st.button("New challenge"):
+        if st.button("🔄 New challenge"):
             _reset()
             st.rerun()
 

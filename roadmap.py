@@ -15,14 +15,14 @@ def _in_phase(day: int, days: str) -> bool:
 
 
 def render(user, orch_getter) -> None:
-    page_header("Learning Roadmap",
+    page_header("🗺️ Learning Roadmap",
                 "A 90-day plan in six phases. Adjust it at any time and the mentor rewrites it from your real "
                 "assessment results.")
     rm = db.active_roadmap(user.id)
     if rm is None:
         st.markdown("Your roadmap starts on the day you create it.")
         start = st.date_input("Day 1", value=dt.date.today())
-        if st.button("Create my 90-day roadmap", type="primary"):
+        if st.button("🗺️ Create my 90-day roadmap", type="primary"):
             db.save_roadmap(user.id, analytics.BASE_ROADMAP, "Starting plan, before any assessment.", start)
             st.rerun()
         return
@@ -31,7 +31,7 @@ def render(user, orch_getter) -> None:
     st.progress(day / 90, text=f"Day {day} of 90 (started {rm.start_date})")
     c1, c2 = st.columns([3, 1])
     with c2:
-        if st.button("Adjust to my results", type="primary",
+        if st.button("🧭 Adjust to my results", type="primary",
                      help="The mentor rewrites the plan using your scores and weaknesses"):
             orch = orch_getter()
             if orch:
@@ -41,7 +41,7 @@ def render(user, orch_getter) -> None:
                     out = run_safely("Your mentor is updating the plan...", lambda: orch.adjust_roadmap(user.id))
                     if out:
                         st.rerun()
-        if st.button("Reset to the standard plan"):
+        if st.button("↩️ Reset to the standard plan"):
             db.save_roadmap(user.id, analytics.BASE_ROADMAP, "Reset to the standard plan.", rm.start_date)
             st.rerun()
     with c1:

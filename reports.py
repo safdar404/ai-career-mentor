@@ -15,7 +15,7 @@ SECTION_TITLES = {
 
 
 def render(user, orch_getter) -> None:
-    page_header("Performance Reports",
+    page_header("📈 Performance Reports",
                 "Area scores and weekly progress reports, written only from data stored in your training history.")
 
     groups = analytics.group_scores(user.id)
@@ -43,7 +43,7 @@ def render(user, orch_getter) -> None:
     st.markdown("---")
     st.markdown("#### Weekly progress report")
     st.caption("Covers the last 7 days and compares with the 7 days before, when that data exists.")
-    if st.button("Generate this week's report", type="primary"):
+    if st.button("📝 Generate this week's report", type="primary"):
         orch = orch_getter()
         if orch:
             out = run_safely("Your progress manager is writing the report...", lambda: orch.weekly_report(user.id))
