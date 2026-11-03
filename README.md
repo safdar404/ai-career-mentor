@@ -63,19 +63,19 @@ When a category doesn't apply (English Lab has no technical score; Coding Lab ha
 ## Architecture
 
 ```
-                         Streamlit UI (app.py, mentor/ui)
+                         Streamlit UI (app.py + page modules)
                                      |
-                         Orchestrator (mentor/orchestrator.py)
+                         Orchestrator (orchestrator.py)
      loads shared learner context from DB -> picks agents -> runs them -> saves results
         |            |             |            |            |              |
   Technical      English      Technical      Gap         HR & Career    Progress
   Interviewer    Coach        Mentor         Analyst     Coach          Manager
         \____________\____________|____________/____________/______________/
                                   |
-                   LLM provider layer (mentor/llm.py)
+                   LLM provider layer (llm.py)
                      Claude  |  OpenAI   (+ JSON repair, retries, clear errors)
                                   |
-              Database (mentor/db.py, SQLAlchemy): SQLite or PostgreSQL
+              Database (db.py, SQLAlchemy): SQLite or PostgreSQL
 ```
 
 **How one answer is processed:**
@@ -83,7 +83,7 @@ When a category doesn't apply (English Lab has no technical score; Coding Lab ha
 1. The orchestrator loads your profile, open weaknesses and recent average from the database.
 2. The Technical Interviewer (or the HR Coach for behavioural questions) and the English Coach evaluate the answer **in parallel**.
 3. Their outputs are combined into the 10-category scorecard and saved. Topic, communication and daily statistics are updated.
-4. The Gap Analyst extracts weaknesses using a fixed topic taxonomy (`mentor/topics.py`), so the same weakness always lands on the same key and repeats are counted reliably.
+4. The Gap Analyst extracts weaknesses using a fixed topic taxonomy (`topics.py`), so the same weakness always lands on the same key and repeats are counted reliably.
 5. If you couldn't answer, the Technical Mentor teaches the concept and the next question re-tests it once.
 6. Difficulty moves up after two strong answers and down after two weak ones.
 7. When the session ends, the Progress Manager writes a summary from the stored results only.
@@ -92,22 +92,25 @@ Agents never call each other. They share context only through the database and t
 
 ### Project layout
 
+All files sit in one folder, so the whole project uploads to GitHub in one step.
+
 ```
-app.py                     Streamlit entry point and navigation
-api.py                     Optional FastAPI service
-mentor/
-  config.py                Environment settings, log redaction of API keys
-  db.py                    13 tables + repository functions, export/delete
-  llm.py                   Claude/OpenAI providers, retries, JSON helper
-  agents.py                The six agents and their prompts
-  orchestrator.py          Session flow, scoring, teaching, adaptive difficulty
-  analytics.py             Deterministic stats for dashboard and reports
-  topics.py                Fixed topic taxonomy
-  voice.py                 Speech-to-text, text-to-speech
-  ui/theme.py              Custom CSS
-  ui/components.py         Scorecard, feedback views, answer input, interview runner
-  ui/pages/*.py            One module per page
-tests/                     33 tests (fake model provider, no API calls)
+app.py              Streamlit entry point and navigation
+api.py              Optional FastAPI service
+config.py           Environment settings, log redaction of API keys
+db.py               13 tables + repository functions, export/delete
+llm.py              Claude/OpenAI providers, retries, JSON helper
+agents.py           The six agents and their prompts
+orchestrator.py     Session flow, scoring, teaching, adaptive difficulty
+analytics.py        Deterministic stats for dashboard and reports
+topics.py           Fixed topic taxonomy
+voice.py            Speech-to-text, text-to-speech
+theme.py            Custom CSS
+components.py       Scorecard, feedback views, answer input, interview runner
+dashboard.py, interview.py, english.py, coding.py, academy.py, projects.py,
+gaps.py, roadmap.py, reports.py, settings_page.py     One module per page
+test_*.py, fake_provider.py                           33 tests (no API calls)
+.streamlit/config.toml                                Dark theme
 ```
 
 ### Database tables
@@ -135,7 +138,7 @@ To add real-time voice later, implement a new provider beside `voice.py`. For ph
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest tests -q
+python -m pytest -q
 ```
 
 The tests use a deterministic fake model, so they need no API keys and cost nothing. They cover:

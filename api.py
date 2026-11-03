@@ -14,9 +14,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 
-from mentor import analytics, db
-from mentor.config import settings
-from mentor.llm import available_providers
+import analytics, db
+from config import settings
+from llm import available_providers
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):

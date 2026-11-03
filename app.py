@@ -6,13 +6,12 @@ from __future__ import annotations
 
 import streamlit as st
 
-from mentor import db
-from mentor.config import get_logger, settings
-from mentor.orchestrator import JOB_ROLES
-from mentor.ui import components
-from mentor.ui.pages import (academy, coding, dashboard, english, gaps, interview, projects, reports, roadmap,
-                             settings_page)
-from mentor.ui.theme import CSS
+import db
+from config import get_logger, settings
+from orchestrator import JOB_ROLES
+import components
+import academy, coding, dashboard, english, gaps, interview, projects, reports, roadmap, settings_page
+from theme import CSS
 
 log = get_logger("app")
 
