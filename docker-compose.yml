@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    env_file: .env
+    volumes:
+      - mentor-data:/app/data          # SQLite database persists here
+    restart: unless-stopped
+
+  # Optional REST API:  docker compose --profile api up
+  api:
+    build: .
+    profiles: ["api"]
+    command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"          # local only by default
+    env_file: .env
+    volumes:
+      - mentor-data:/app/data
+
+  # Optional PostgreSQL:  set DATABASE_URL to the postgres URL in .env, then
+  #   docker compose --profile postgres up
+  db:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: mentor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: mentor
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mentor"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  mentor-data:
+  pg-data:
