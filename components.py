@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import streamlit as st
 
-import db, voice
+import db, prosody, voice
 from avatar import avatar_svg, bubble
 from config import get_logger, settings
 from llm import LLMError
@@ -34,7 +34,7 @@ STYLES = ["Friendly", "Neutral", "Challenging"]
 
 DEFAULT_PREFS = {"provider": "", "accent": "International English", "tts": "browser", "autoplay": "true",
                  "urdu_support": "false", "style": "Neutral", "mode": "chat", "hands_free": "false",
-                 "presence": "true"}
+                 "presence": "true", "emotion_coach": "true"}
 
 MODES = {"chat": "💬 Chat", "voice": "🎙️ Voice call", "video": "🎥 Video call"}
 
@@ -302,8 +302,8 @@ def evaluation_view(res: dict, user_id: int, key: str) -> None:
 
 # --------------------------------------------------------------------------- answer input
 
-def answer_input(key: str, user_id: int, placeholder: str = "Type your answer here, the way you would say it.") -> tuple[str, str] | None:
-    """Text answer with optional voice recording. Returns (answer, mode) when submitted."""
+def answer_input(key: str, user_id: int, placeholder: str = "Type your answer here, the way you would say it.") -> tuple[str, str, dict] | None:
+    """Text answer with optional voice recording. Returns (answer, mode, voice_metrics) when submitted."""
     text_key, mode_key = f"{key}-text", f"{key}-mode"
     st.session_state.setdefault(mode_key, "text")
 
@@ -314,6 +314,7 @@ def answer_input(key: str, user_id: int, placeholder: str = "Type your answer he
                 try:
                     st.session_state[text_key] = voice.transcribe(audio.getvalue())
                     st.session_state[mode_key] = "voice"
+                    st.session_state[f"{key}-voice"] = prosody.analyze_wav(audio.getvalue())
                 except LLMError as exc:
                     st.session_state[f"{key}-err"] = str(exc)
             st.button("📝 Transcribe recording", key=f"{key}-tx", on_click=_transcribe)
@@ -329,12 +330,12 @@ def answer_input(key: str, user_id: int, placeholder: str = "Type your answer he
     if st.button("✅ Submit answer", key=f"{key}-submit", type="primary"):
         ans = st.session_state.get(text_key, "")
         mode = st.session_state.get(mode_key, "text")
-        return ans, mode
+        return ans, mode, (st.session_state.get(f"{key}-voice") or {}) if mode == "voice" else {}
     return None
 
 
 def clear_answer(key: str) -> None:
-    for suffix in ("-text", "-mode", "-audio"):
+    for suffix in ("-text", "-mode", "-audio", "-voice"):
         st.session_state.pop(f"{key}{suffix}", None)
 
 
@@ -382,8 +383,9 @@ def interview_runner(prefix: str, user_id: int, orch: Orchestrator) -> None:
             with st.expander("⌨️ Prefer to type, or record with Whisper?"):
                 submitted = answer_input(answer_key, user_id) or submitted
         if submitted:
-            out = run_safely("🧑‍⚖️ Your technical and English coaches are reviewing the answer...",
-                             lambda: orch.submit_answer(sid, q["id"], submitted[0], submitted[1]))
+            sig = coach_signals(user_id, *submitted)
+            out = run_safely("🧑‍⚖️ Your technical, English and confidence coaches are reviewing the answer...",
+                             lambda: orch.submit_answer(sid, q["id"], submitted[0], submitted[1], signals=sig))
             if out:
                 run_pending_presence(prefix, sid, q, orch)
                 st.session_state[f"{prefix}_res"] = out
@@ -393,6 +395,7 @@ def interview_runner(prefix: str, user_id: int, orch: Orchestrator) -> None:
     if res:
         st.markdown("---")
         st.markdown("### 📊 Feedback")
+        emotion_view(res.get("emotion"), user_id, key=f"{prefix}-{q['id']}-{res['evaluation_id']}")
         evaluation_view(res, user_id, key=f"{prefix}-{q['id']}-{res['evaluation_id']}")
         presence_view(st.session_state.get(f"{prefix}_presence", {}).get(q["id"]))
         c1, c2, c3 = st.columns(3)
@@ -423,6 +426,20 @@ def interview_runner(prefix: str, user_id: int, orch: Orchestrator) -> None:
                 st.rerun()
 
 
+def coach_signals(user_id: int, answer: str, mode: str, voice_metrics: dict | None = None) -> dict | None:
+    """Signals for the confidence coach, or None when the learner switched the coach off."""
+    if prefs(user_id).get("emotion_coach") == "false":
+        return None
+    return prosody.combine(answer, voice_metrics or {}, mode)
+
+
+def emotion_view(e: dict | None, user_id: int, key: str) -> None:
+    if e:
+        from wellbeing import emotion_card
+
+        emotion_card(e, user_id, key)
+
+
 def conversation_mode(prefix: str, user_id: int) -> str:
     """💬 / 🎙️ / 🎥 switch, remembered per learner."""
     p = prefs(user_id)
@@ -444,6 +461,10 @@ def conversation_mode(prefix: str, user_id: int) -> str:
                 db.set_setting(user_id, "hands_free", str(hf).lower())
             if str(pr).lower() != p["presence"]:
                 db.set_setting(user_id, "presence", str(pr).lower())
+            ec = st.toggle("💛 Confidence coach: read how I sound (pace, pauses, steadiness, words) and coach me",
+                           value=p["emotion_coach"] != "false", key=f"{prefix}-ec")
+            if str(ec).lower() != (p["emotion_coach"] or "true"):
+                db.set_setting(user_id, "emotion_coach", str(ec).lower())
             st.caption("Voice typing uses your browser's speech recognition (Chrome or Edge). "
                        "Camera frames are used for one feedback call and never stored.")
     return choice
@@ -466,7 +487,7 @@ def call_stage(prefix: str, user_id: int, sid: int, q: dict, mode: str, orch: Or
         img = videocall.decode_image(ans.get("image"))
         if img:  # coached right after the answer is evaluated, so the transcript stays in order
             st.session_state[f"{prefix}_pending_frame"] = (q["id"], img)
-        return ans["text"], mode
+        return ans["text"], mode, prosody.clean_live(ans.get("voice"))
     return None
 
 

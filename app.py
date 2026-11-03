@@ -11,7 +11,7 @@ from config import get_logger
 from orchestrator import JOB_ROLES
 import components
 import keys
-import academy, coding, dashboard, english, gaps, history, interview, projects, reports, roadmap, settings_page
+import academy, coding, dashboard, english, gaps, history, interview, projects, reports, roadmap, settings_page, wellbeing
 from avatar import avatar_svg, brand_html
 from theme import CSS
 
@@ -37,6 +37,7 @@ except Exception:  # noqa: BLE001
 PAGES = {
     "📊 Dashboard": dashboard.render,
     "🎤 Live AI Interview": interview.render_live,
+    "💛 Confidence Coach": wellbeing.render,
     "🗣️ English Communication Lab": english.render,
     "🧪 Technical Assessment": interview.render_assessment,
     "🐍 Python Coding Lab": coding.render,
@@ -110,6 +111,7 @@ def onboarding() -> None:
                                 st.error("Wrong PIN.")
         st.markdown("#### 🧭 What happens here")
         st.markdown("- 🧑‍⚖️ Every answer is scored on **ten categories** by separate technical and English coaches\n"
+                    "- 💛 A confidence coach reads how you sound and helps with nerves and fear of speaking\n"
                     "- 🎯 Weaknesses are recorded; repeated ones become priorities\n"
                     "- 🗺️ Your roadmap adapts to your real results\n"
                     "- 🗂️ Every conversation is saved so you can review it later")

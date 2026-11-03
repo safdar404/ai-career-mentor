@@ -10,7 +10,7 @@ from orchestrator import Orchestrator
 from fake_provider import FakeProvider
 
 APP = str(Path(__file__).resolve().parent / "app.py")
-PAGES = ["📊 Dashboard", "🎤 Live AI Interview", "🗣️ English Communication Lab", "🧪 Technical Assessment",
+PAGES = ["📊 Dashboard", "🎤 Live AI Interview", "💛 Confidence Coach", "🗣️ English Communication Lab", "🧪 Technical Assessment",
          "🐍 Python Coding Lab", "🤖 Generative AI Academy", "🕸️ Agentic AI Academy", "📽️ Project Presentation Trainer",
          "🤝 HR Interview Simulator", "🎯 Weakness & Gap Analysis", "🗺️ Learning Roadmap", "📈 Performance Reports",
          "🗂️ Conversation History", "⚙️ Settings"]

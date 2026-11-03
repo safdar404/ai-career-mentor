@@ -1,6 +1,7 @@
 import streamlit as st
 
 import db
+from wellbeing import checkin
 from orchestrator import CATEGORIES, DIFFICULTIES, JOB_ROLES
 from topics import GROUP_LABELS, TOPIC_GROUPS
 from components import (ACCENTS, STYLES, conversation_mode, interview_runner, page_header, prefs, run_safely,
@@ -25,6 +26,8 @@ def render_live(user, orch_getter) -> None:
     if not runner_active(prefix):
         st.markdown("##### How do you want to talk?")
         conversation_mode(prefix, user.id)
+        with st.expander("💛 Quick check-in: how are you feeling before we start?"):
+            checkin(user.id, f"{prefix}-pre")
         p = prefs(user.id)
         projects = db.list_projects(user.id)
         with st.form("live-setup"):
@@ -106,6 +109,8 @@ def render_hr(user, orch_getter) -> None:
     if not runner_active(prefix):
         st.markdown("##### How do you want to talk?")
         conversation_mode(prefix, user.id)
+        with st.expander("💛 Quick check-in: how are you feeling before we start?"):
+            checkin(user.id, f"{prefix}-pre")
         p = prefs(user.id)
         with st.form("hr-setup"):
             c1, c2 = st.columns(2)

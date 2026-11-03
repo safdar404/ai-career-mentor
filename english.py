@@ -3,7 +3,7 @@ import streamlit as st
 import db
 from agents import SCENARIOS
 from avatar import bubble
-from components import (ACCENTS, answer_input, call_stage, clear_answer, conversation_mode, evaluation_view,
+from components import (ACCENTS, answer_input, call_stage, clear_answer, coach_signals, conversation_mode, emotion_view, evaluation_view,
                         page_header, prefs, presence_view, question_block, run_pending_presence, run_safely, speak)
 
 
@@ -23,6 +23,10 @@ def render(user, orch_getter) -> None:
     if not st.session_state.get("eng_sid"):
         st.markdown("##### How do you want to talk?")
         conversation_mode("eng", user.id)
+        with st.expander("💛 Quick check-in: how are you feeling before we start?"):
+            from wellbeing import checkin
+
+            checkin(user.id, "eng-pre")
         p = prefs(user.id)
         with st.form("eng-setup"):
             scenario = st.selectbox("Practice scenario", list(SCENARIOS),
@@ -74,7 +78,8 @@ def render(user, orch_getter) -> None:
         presence_view(st.session_state.get("eng_presence", {}).get(q["id"]))
         if submitted:
             out = run_safely("🗣️ Your English coach is reviewing your reply...",
-                             lambda: orch.submit_english(sid, q["id"], submitted[0], submitted[1]))
+                             lambda: orch.submit_english(sid, q["id"], submitted[0], submitted[1],
+                                                         signals=coach_signals(user.id, *submitted)))
             if out:
                 run_pending_presence("eng", sid, q, orch)
                 st.session_state["eng_res"] = out
@@ -84,6 +89,7 @@ def render(user, orch_getter) -> None:
         if prev is not None and res.get("attempt", 1) > 1:
             delta = res["total"] - prev
             st.info(f"📈 Attempt {res['attempt']}: {res['total']:g} / 100 ({'+' if delta >= 0 else ''}{delta:g} vs your previous attempt).")
+        emotion_view(res.get("emotion"), user.id, key=f"eng-{q['id']}-{res['evaluation_id']}")
         evaluation_view(res, user.id, key=f"eng-{q['id']}-{res['evaluation_id']}")
         presence_view(st.session_state.get("eng_presence", {}).get(q["id"]))
         c1, c2, c3 = st.columns(3)

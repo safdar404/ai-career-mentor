@@ -157,7 +157,7 @@ export default function (component) {
     try {
       G.ctx = G.ctx || new (window.AudioContext || window.webkitAudioContext)();
       const src = G.ctx.createMediaStreamSource(G.stream);
-      const an = G.ctx.createAnalyser(); an.fftSize = 512; src.connect(an);
+      const an = G.ctx.createAnalyser(); an.fftSize = 2048; src.connect(an); G.an = an;
       const buf = new Uint8Array(an.fftSize);
       cancelAnimationFrame(G.raf);
       const tick = () => {
@@ -192,6 +192,56 @@ export default function (component) {
     if (!G.videos.size && G.stream) { G.stream.getTracks().forEach(t => t.stop()); G.stream = null; cancelAnimationFrame(G.raf); }
   }, 2500);
 
+  // ---------- voice measurements (pace, pauses, steadiness, pitch) taken locally while answering
+  function pitchOf(buf, rate) {
+    let mean = 0; for (const x of buf) mean += x; mean /= buf.length;
+    const lo = Math.floor(rate / 400), hi = Math.floor(rate / 75);
+    let e0 = 0; for (const x of buf) e0 += (x - mean) * (x - mean);
+    if (!e0) return null;
+    let best = 0, lag = 0;
+    for (let L = lo; L <= hi && L < buf.length; L++) {
+      let c = 0; for (let i = 0; i + L < buf.length; i++) c += (buf[i] - mean) * (buf[i + L] - mean);
+      if (c > best) { best = c; lag = L; }
+    }
+    return lag && best / e0 > 0.3 ? rate / lag : null;
+  }
+  function startMeasure() {
+    S.m = { t0: performance.now(), first: null, voiced: 0, total: 0, rms: [], pitches: [], pauses: [], run: 0, floor: null, peak: 0 };
+    clearInterval(S.mTimer);
+    S.mTimer = setInterval(() => {
+      if (!G.an || !S.listening) return;
+      const buf = new Float32Array(G.an.fftSize); G.an.getFloatTimeDomainData(buf);
+      let sq = 0; for (const x of buf) sq += x * x; const r = Math.sqrt(sq / buf.length);
+      const m = S.m; m.total += 50; m.peak = Math.max(m.peak, r);
+      if (m.total <= 400) { m.floor = m.floor === null ? r : Math.min(m.floor, r); return; }
+      const th = Math.max((m.floor || 0.003) * 2.5, m.peak * 0.08, 0.004);
+      if (r >= th) {
+        if (m.first === null) m.first = performance.now() - m.t0;
+        if (m.run >= 350) m.pauses.push(m.run);
+        m.run = 0; m.voiced += 50; m.rms.push(r);
+        if (m.rms.length % 2 === 0 && r >= m.peak * 0.15) { const p = pitchOf(buf, G.ctx.sampleRate); if (p) m.pitches.push(p); }
+      } else if (m.first !== null) m.run += 50;
+    }, 50);
+  }
+  function measured() {
+    const m = S.m; if (!m || !m.rms.length) return {};
+    clearInterval(S.mTimer);
+    const mean = m.rms.reduce((a, b) => a + b, 0) / m.rms.length;
+    const sd = Math.sqrt(m.rms.reduce((a, b) => a + (b - mean) ** 2, 0) / m.rms.length);
+    const dur = (performance.now() - m.t0) / 1000;
+    const out = { duration_s: dur, speech_s: m.voiced / 1000, silence_ratio: Math.max(0, 1 - (m.voiced / 1000) / Math.max(dur, 0.1)),
+      first_word_s: m.first === null ? null : m.first / 1000, long_pauses: m.pauses.filter(x => x >= 1500).length,
+      avg_pause_s: m.pauses.length ? m.pauses.reduce((a, b) => a + b, 0) / m.pauses.length / 1000 : 0,
+      loudness_variation: mean ? sd / mean : 0, loudness_level: m.peak ? mean / m.peak : 0 };
+    if (m.pitches.length >= 8) {
+      const st = m.pitches.map(p => 12 * Math.log2(p / 100)); const sm = st.reduce((a, b) => a + b, 0) / st.length;
+      out.pitch_hz = m.pitches.reduce((a, b) => a + b, 0) / m.pitches.length;
+      out.pitch_variation_st = Math.sqrt(st.reduce((a, b) => a + (b - sm) ** 2, 0) / st.length);
+    }
+    for (const k in out) if (out[k] === null) delete out[k];
+    return out;
+  }
+
   // ---------- listening
   function startListening() {
     if (!SR) { $('answer').focus(); return; }
@@ -216,6 +266,7 @@ export default function (component) {
     rec.onerror = (e) => { if (e.error === 'not-allowed') { note('🚫 Microphone blocked for voice typing.'); stopListening(); } };
     rec.onend = () => { if (S.listening) { try { rec.start(); } catch (e) {} } };
     S.rec = rec; S.listening = true;
+    if (!S.m) startMeasure();
     try { rec.start(); } catch (e) {}
     setAv('listening'); status('👂 Listening… speak naturally');
     $('talk').textContent = '⏹ Stop'; $('mePill').textContent = 'Recording'; $('mePill').classList.add('rec');
@@ -243,7 +294,7 @@ export default function (component) {
     stopListening();
     setAv('thinking'); status('⏳ Your coaches are reviewing…');
     $('send').disabled = true;
-    setTriggerValue('answer', { qid: d.qid, text, image: d.presence ? snapshot() : null });
+    setTriggerValue('answer', { qid: d.qid, text, image: d.presence ? snapshot() : null, voice: measured() });
   }
 
   // ---------- wire buttons (re-bound on every render, so always current)
@@ -257,7 +308,7 @@ export default function (component) {
   // ---------- new question arrives
   if (S.lastQid !== d.qid) {
     S.lastQid = d.qid; S.sent = false;
-    $('answer').value = ''; S.finalText = ''; $('send').disabled = false;
+    $('answer').value = ''; S.finalText = ''; $('send').disabled = false; S.m = null;
     if (!G.stream) cameraOn(!!d.camera); else attach();
     const next = d.handsFree ? startListening : null;
     if (d.autoplay !== false) {

@@ -192,6 +192,19 @@ class Project(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class EmotionCheck(Base):
+    """One reading of how the learner felt/sounded: after an answer, a check-in, or a self-report."""
+    __tablename__ = "emotion_checks"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("interview_sessions.id", ondelete="CASCADE"), nullable=True)
+    source: Mapped[str] = mapped_column(String(20))  # text / voice / video / checkin
+    signals: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    self_report: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utcnow)
+
+
 # --------------------------------------------------------------------------- engine
 
 _engine = None
@@ -316,7 +329,7 @@ def add_message(user_id: int, session_id: int | None, role: str, content: str, a
         s.add(Conversation(user_id=user_id, session_id=session_id, role=role, content=content, agent=agent))
 
 
-META_AGENTS = ("feedback", "presence_coach")  # coaching notes saved in the transcript, not dialogue turns
+META_AGENTS = ("feedback", "presence_coach", "confidence_coach")  # coaching notes saved in the transcript, not dialogue turns
 
 
 def get_messages(session_id: int, include_meta: bool = False) -> list[Conversation]:
@@ -326,6 +339,58 @@ def get_messages(session_id: int, include_meta: bool = False) -> list[Conversati
         if not include_meta:
             stmt = stmt.where(Conversation.agent.not_in(META_AGENTS))
         return list(s.scalars(stmt.order_by(Conversation.id)))
+
+
+# --------------------------------------------------------------------------- emotions & confidence
+
+MOODS = ["😣 Very anxious", "😟 Nervous", "😐 Okay", "🙂 Good", "😄 Confident"]
+
+
+def add_emotion_check(user_id: int, session_id: int | None, source: str, signals: dict | None = None,
+                      result: dict | None = None, self_report: str = "") -> int:
+    with session_scope() as s:
+        row = EmotionCheck(user_id=user_id, session_id=session_id, source=source[:20], signals=signals or {},
+                           result=result or {}, self_report=self_report[:500])
+        s.add(row)
+        s.flush()
+        return row.id
+
+
+def set_self_report(check_id: int, user_id: int, report: str) -> bool:
+    with session_scope() as s:
+        row = s.get(EmotionCheck, check_id)
+        if row is None or row.user_id != user_id:
+            return False
+        row.self_report = report[:500]
+        return True
+
+
+def add_checkin(user_id: int, mood: int, note: str = "") -> int:
+    mood = max(0, min(4, int(mood)))
+    label = MOODS[mood]
+    text = f"Check-in: felt {label.split(' ', 1)[1].lower()}" + (f" - {note.strip()[:300]}" if note.strip() else "")
+    return add_emotion_check(user_id, None, "checkin", {"mood": mood}, {"mood": mood, "mood_label": label}, text)
+
+
+def emotion_history(user_id: int, limit: int = 200) -> list[dict]:
+    """Oldest first, as plain dicts."""
+    with session_scope() as s:
+        rows = list(s.scalars(select(EmotionCheck).where(EmotionCheck.user_id == user_id)
+                              .order_by(EmotionCheck.created_at.desc(), EmotionCheck.id.desc()).limit(limit)))
+    out = []
+    for r in reversed(rows):
+        res = r.result or {}
+        out.append({"id": r.id, "at": r.created_at, "when": f"{r.created_at:%d %b %H:%M}", "source": r.source,
+                    "session_id": r.session_id, "primary_emotion": res.get("primary_emotion"),
+                    "confidence": res.get("confidence"), "calm": res.get("calm"),
+                    "fear_of_speaking": res.get("fear_of_speaking"), "energy": res.get("energy"),
+                    "mood": res.get("mood"), "self_report": r.self_report,
+                    "voice": (r.signals or {}).get("voice") or {}, "text": (r.signals or {}).get("text") or {}})
+    return out
+
+
+def self_reports(user_id: int, limit: int = 12) -> list[str]:
+    return [f"{h['when']}: {h['self_report']}" for h in emotion_history(user_id, 60) if h["self_report"]][-limit:]
 
 
 def conversation_index(user_id: int, module: str | None = None, search: str = "", limit: int = 200) -> list[dict]:
@@ -364,7 +429,7 @@ def delete_session(session_id: int, user_id: int) -> bool:
         q_ids = [x.id for x in s.scalars(select(InterviewQuestion).where(InterviewQuestion.session_id == session_id))]
         for r in s.scalars(select(AnswerEvaluation).where(AnswerEvaluation.question_id.in_(q_ids or [-1]))):
             s.delete(r)
-        for model in (InterviewQuestion, Conversation):
+        for model in (InterviewQuestion, Conversation, EmotionCheck):
             for r in s.scalars(select(model).where(model.session_id == session_id)):
                 s.delete(r)
         s.delete(sess)
@@ -642,7 +707,7 @@ def export_user_data(user_id: int) -> dict:
             "answer_evaluations": AnswerEvaluation, "technical_skills": TechnicalSkill,
             "communication_skills": CommunicationSkill, "knowledge_gaps": KnowledgeGap,
             "learning_roadmaps": LearningRoadmap, "daily_progress": DailyProgress,
-            "weekly_reports": WeeklyReport, "projects": Project,
+            "weekly_reports": WeeklyReport, "projects": Project, "emotion_checks": EmotionCheck,
         }
         for name, model in simple.items():
             data[name] = [_row(r) for r in s.scalars(select(model).where(model.user_id == user_id))]
@@ -661,7 +726,7 @@ def delete_user_data(user_id: int) -> None:
                 s.delete(r)
         for r in s.scalars(select(InterviewQuestion).where(InterviewQuestion.id.in_(q_ids or [-1]))):
             s.delete(r)
-        for model in (Conversation, Setting, TechnicalSkill, CommunicationSkill, KnowledgeGap,
+        for model in (EmotionCheck, Conversation, Setting, TechnicalSkill, CommunicationSkill, KnowledgeGap,
                       LearningRoadmap, DailyProgress, WeeklyReport, Project, InterviewSession):
             for r in s.scalars(select(model).where(model.user_id == user_id)):
                 s.delete(r)

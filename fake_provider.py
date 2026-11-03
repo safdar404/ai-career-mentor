@@ -25,6 +25,32 @@ class FakeProvider:
             self.calls.append("broken")
             return "Sure! Here is the result: {not json"
         s = system
+        if "TASK: Read one answer the learner just gave" in s:
+            self.calls.append("coach.assess")
+            nervous = "nervous" in user.lower() or "sorry" in user.lower()
+            return json.dumps({"primary_emotion": "nervous" if nervous else "focused",
+                               "emotions": [{"label": "nervous" if nervous else "focused", "intensity": 7},
+                                            {"label": "hesitant", "intensity": 4}],
+                               "confidence": 3 if nervous else 7, "calm": 3 if nervous else 7, "fear_of_speaking": 7 if nervous else 3,
+                               "energy": 5, "evidence": ["Apologised twice", "Took 5s before the first word"],
+                               "what_went_well": ["You named retrieval correctly"],
+                               "reframe": {"thought": "I'm bad at this", "better": "I'm learning this, and I already know the core idea"},
+                               "technique": {"name": "Box breathing", "why": "Slows your pace", "steps": ["In 4", "Hold 4", "Out 4", "Hold 4"], "seconds": 60},
+                               "micro_exercise": "Say your first sentence again, slower, with a pause after it.",
+                               "power_phrase": "Let me walk you through how RAG works.",
+                               "mentor_message": "You know more than you think. Slow down and let your knowledge show.",
+                               "next_focus": "Start answers with one clear sentence", "concern": False})
+        if "private one-to-one mentoring chat" in s:
+            self.calls.append("coach.chat")
+            return json.dumps({"reply": "That freeze is very common. Let's practise a 3-breath reset.",
+                               "technique": {"name": "3-breath reset", "steps": ["Breathe out slowly", "Plant your feet", "Say your first sentence"]},
+                               "concern": False})
+        if "personal confidence growth plan" in s:
+            self.calls.append("coach.journey")
+            return json.dumps({"summary": "Confidence is rising.", "patterns": ["Nervous at the start of sessions"],
+                               "strengths": ["Persistence"],
+                               "exposure_ladder": [{"step": f"Step {i}", "goal": "done"} for i in range(1, 6)],
+                               "daily_routine": ["2 minutes of out-loud answers"], "affirmation": "I explain clearly when I slow down."})
         if "Ask exactly ONE behavioural" in s:
             self.calls.append("hr.ask")
             return json.dumps({"question": "Tell me about yourself.", "topic": "pro.self_intro", "kind": "new"})

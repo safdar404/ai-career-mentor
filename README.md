@@ -56,6 +56,16 @@ One key is enough. With both, you choose the provider in **Settings**, and voice
 | 🗂️ Conversation History | Every interview, lesson and practice conversation is saved: search inside them, replay them as chat bubbles, download as Markdown/JSON, or delete one |
 | ⚙️ Settings | Profile, API keys, provider, accent, voice, interviewer style, Urdu support, profile PIN, export or delete your data |
 
+### 💛 Confidence & emotion coach
+
+A seventh agent looks after the human side of interviews: nerves, fear of speaking and self-doubt.
+
+- **It listens to how you speak.** In 🎙️/🎥 calls the browser measures pace, time before your first word, long pauses, volume steadiness and pitch variation (nothing is recorded or uploaded except these numbers). Whisper recordings are analysed the same way on the server. In 💬 chat it reads your words: filler words, hedges ("I think maybe"), apologies, negative self-talk ("I'm bad at this") and ownership language ("I built").
+- **It coaches like a mentor.** After every answer: how you sounded (confidence, calm, fear of speaking, energy) with the evidence, what went well, a reframe of the unhelpful thought, one technique (box breathing, the power pause, bridging phrases, anchoring, an exposure ladder), a power phrase and a one-minute exercise.
+- **It learns from you.** "Was this right?" lets you correct its read; your corrections and check-ins are given to it next time, and the interviewers soften their tone (never the scoring) when you've been sounding nervous.
+- **💛 Confidence Coach page:** mood check-in, an animated 60-second breathing guide, confidence/calm/fear trends, a personal growth plan with a 5-step speaking ladder, a toolkit, and a private chat with your mentor.
+- It is a coach, not a therapist: readings are estimates, never diagnoses, and it points to real support if someone seems to be in distress. You can switch it off in ⚙️ Settings or the call settings.
+
 ### 💬 🎙️ 🎥 Conversation modes
 
 Live interviews, the HR simulator and the English Lab each have a one-click mode switch:
@@ -112,7 +122,7 @@ api.py              Optional FastAPI service
 config.py           Environment settings, log redaction of API keys
 db.py               13 tables + repository functions, export/delete
 llm.py              Claude/OpenAI providers, retries, JSON helper
-agents.py           The six agents and their prompts
+agents.py           The eight agents and their prompts
 orchestrator.py     Session flow, scoring, teaching, adaptive difficulty
 analytics.py        Deterministic stats for dashboard and reports
 topics.py           Fixed topic taxonomy
@@ -122,10 +132,12 @@ avatar.py           Animated SVG agent: logo, chat bubbles, speaking/listening/t
 keys.py             In-app API key entry (session only) and key checks
 videocall.py        Voice/video call stage: camera, speech recognition, snapshot
 history.py          Conversation History page
+prosody.py          Voice and language signals (pace, pauses, pitch, fillers, hedges, self-talk)
+wellbeing.py        Confidence Coach page, mentor card, check-in, breathing guide
 components.py       Scorecard, feedback views, answer input, interview runner
 dashboard.py, interview.py, english.py, coding.py, academy.py, projects.py,
 gaps.py, roadmap.py, reports.py, settings_page.py     One module per page
-test_*.py, fake_provider.py                           48 tests (no API calls)
+test_*.py, fake_provider.py                           63 tests (no API calls)
 .streamlit/config.toml                                Dark theme
 ```
 
@@ -154,7 +166,7 @@ To add real-time voice later, implement a new provider beside `voice.py`. For ph
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest -q   # 48 tests
+python -m pytest -q   # 63 tests
 ```
 
 The tests use a deterministic fake model, so they need no API keys and cost nothing. They cover:
@@ -242,7 +254,7 @@ Endpoints: `GET /health` (public), `GET /users`, `GET /users/{id}/stats`, `GET /
 - **Pronunciation and speaking speed are not measured.** Transcription returns text only. "Words to practise" are suggestions based on your wording. Pitch length is estimated from word count at about 130 words per minute.
 - **Code is not executed.** Running untrusted code safely needs a sandbox. The review reasons about your code statically and says so; run the test cases yourself.
 - **AI scores are judgements, not measurements.** They are consistent enough to track progress, but they vary between runs and between providers. Look at trends over many answers, not single scores.
-- **Verified in development:** all 48 automated tests pass and the server boots. The voice/video stage was also driven end to end in headless Chrome with a simulated camera. **Not yet verified:** live calls with real API keys, the Docker build, PostgreSQL, and real-microphone speech recognition. Run the manual checklist above after adding your key.
+- **Verified in development:** all 63 automated tests pass and the server boots. The voice/video stage was also driven end to end in headless Chrome with a simulated camera. **Not yet verified:** live calls with real API keys, the Docker build, PostgreSQL, and real-microphone speech recognition. Run the manual checklist above after adding your key.
 
 ---
 

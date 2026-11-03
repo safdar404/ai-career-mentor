@@ -62,11 +62,13 @@ def render(user, orch_getter) -> None:
                                     "openai": "🟢 OpenAI voice (needs an OpenAI key, no accent choice)",
                                     "off": "🔇 Off"}.get)
         autoplay = st.checkbox("Read each question aloud automatically", value=p["autoplay"] == "true")
+        emo = st.checkbox("💛 Confidence coach: read how I sound and feel after each answer, and coach me",
+                          value=p["emotion_coach"] != "false")
         urdu = st.checkbox("Allow short Roman Urdu summaries when teaching a concept I could not answer",
                            value=p["urdu_support"] == "true")
         if st.form_submit_button("💾 Save voice settings", type="primary"):
             for k, v in {"accent": accent, "style": style, "tts": tts, "autoplay": str(autoplay).lower(),
-                         "urdu_support": str(urdu).lower()}.items():
+                         "urdu_support": str(urdu).lower(), "emotion_coach": str(emo).lower()}.items():
                 db.set_setting(user.id, k, v)
             st.success("Saved.")
     st.caption("🎙️ Voice/video call mode uses free browser voice typing (Chrome or Edge). Whisper recording needs an "

@@ -4,6 +4,7 @@ anthropic>=2.4,<3
 openai>=3.42,<4
 SQLAlchemy>=2.0,<3
 pandas>=2.2
+numpy>=1.26           # voice analysis (pace, pauses, pitch)
 plotly>=6.0
 python-dotenv>=1.0
 fastapi>=0.115

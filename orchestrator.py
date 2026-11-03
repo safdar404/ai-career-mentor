@@ -18,7 +18,7 @@ from dataclasses import asdict
 from typing import Any
 
 import analytics, db
-from agents import (EnglishCoach, GapAnalyst, HRCareerCoach, LearnerContext, PresenceCoach, ProgressManager, SessionSpec,
+from agents import (ConfidenceCoach, EnglishCoach, GapAnalyst, HRCareerCoach, LearnerContext, PresenceCoach, ProgressManager, SessionSpec,
                      TechnicalInterviewer, TechnicalMentor)
 from config import get_logger, settings
 from llm import LLMError, LLMProvider, get_provider
@@ -51,6 +51,26 @@ def validate_answer(answer: str) -> str:
 SPOKEN_MODES = {"voice", "video"}
 
 
+def wellbeing_note(history: list[dict]) -> str:
+    """A short, factual line for the interviewers so they can adapt their tone to how the learner has been feeling."""
+    conf = [h["confidence"] for h in history if isinstance(h.get("confidence"), (int, float))]
+    moods = [h["mood"] for h in history if isinstance(h.get("mood"), (int, float))]
+    if not conf and not moods:
+        return ""
+    parts = []
+    if conf:
+        avg = sum(conf[-5:]) / len(conf[-5:])
+        parts.append(f"recent speaking confidence about {avg:.0f}/10")
+        if avg <= 4:
+            parts.append("they have sounded nervous: keep a warm tone, ask one clear question at a time, and "
+                         "acknowledge effort before probing (keep the standard of scoring unchanged)")
+        elif avg >= 8:
+            parts.append("they sound confident: you can raise the challenge")
+    if moods and moods[-1] <= 1:
+        parts.append("at their last check-in they said they felt anxious")
+    return "; ".join(parts) + "."
+
+
 class Orchestrator:
     def __init__(self, provider: LLMProvider | None = None, provider_name: str | None = None):
         self.provider = provider or get_provider(provider_name)
@@ -61,6 +81,7 @@ class Orchestrator:
         self.hr = HRCareerCoach(self.provider)
         self.progress = ProgressManager(self.provider)
         self.presence = PresenceCoach(self.provider)
+        self.coach = ConfidenceCoach(self.provider)
 
     # ------------------------------------------------------------------ shared context
 
@@ -72,7 +93,8 @@ class Orchestrator:
                  "occurrences": g.occurrences, "priority": g.priority} for g in db.list_gaps(user_id)]
         recent = [ev.total for ev, _, _ in db.evaluations_for_user(user_id)[-10:]]
         return LearnerContext(name=user.name, target_role=user.target_role, background=user.background,
-                              open_gaps=gaps, recent_average=sum(recent) / len(recent) if recent else None)
+                              open_gaps=gaps, recent_average=sum(recent) / len(recent) if recent else None,
+                              wellbeing_note=wellbeing_note(db.emotion_history(user_id, 8)))
 
     @staticmethod
     def _spec(sess: db.InterviewSession) -> SessionSpec:
@@ -156,7 +178,8 @@ class Orchestrator:
         return {"id": q.id, "question": q.question, "topic": q.topic, "kind": q.kind, "agent": agent.title,
                 "difficulty": q.difficulty, "position": q.position}
 
-    def submit_answer(self, session_id: int, question_id: int, answer: str, input_mode: str = "text") -> dict:
+    def submit_answer(self, session_id: int, question_id: int, answer: str, input_mode: str = "text",
+                      signals: dict | None = None) -> dict:
         answer = validate_answer(answer)
         sess = db.get_session(session_id)
         q = db.get_question(question_id)
@@ -169,10 +192,12 @@ class Orchestrator:
 
         evaluator = self.hr if q.agent == HRCareerCoach.name else self.interviewer
         register = "job interview" if spec.module != "english" else spec.category
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             f_tech = pool.submit(evaluator.evaluate, ctx, spec, q.question, q.topic, answer, voice)
             f_comm = pool.submit(self.english.evaluate, q.question, answer, voice, register)
+            f_emo = self._start_emotion(pool, sess.user_id, ctx, q.question, answer, signals)
             technical, communication = f_tech.result(), f_comm.result()
+            emotion = self._finish_emotion(f_emo, sess.user_id, session_id, input_mode, signals)
 
         scores = {k: technical[k] for k in ("technical_accuracy", "conceptual_understanding", "practical_knowledge",
                                              "overall_interview_performance")}
@@ -181,6 +206,8 @@ class Orchestrator:
         target = (q.extra or {}).get("target_seconds")
         if target:
             extra["pitch"] = pitch_length_feedback(answer, target)
+        if emotion:
+            extra["emotion"] = emotion
         return self._finish(sess, spec, ctx, q, answer, input_mode, scores, technical, communication, extra)
 
     def _finish(self, sess, spec, ctx, q, answer, input_mode, scores, technical, communication, extra) -> dict:
@@ -286,19 +313,24 @@ class Orchestrator:
         db.add_message(sess.user_id, session_id, "assistant", out["line"], EnglishCoach.name)
         return {"id": q.id, "question": q.question, "tip": out["tip"], "topic": q.topic}
 
-    def submit_english(self, session_id: int, question_id: int, answer: str, input_mode: str = "text") -> dict:
+    def submit_english(self, session_id: int, question_id: int, answer: str, input_mode: str = "text",
+                       signals: dict | None = None) -> dict:
         answer = validate_answer(answer)
         sess = db.get_session(session_id)
         q = db.get_question(question_id)
         if sess is None or q is None or q.session_id != session_id:
             raise ValidationError("This prompt does not belong to the current session.")
         db.add_message(sess.user_id, session_id, "user", answer)
-        comm = self.english.evaluate(q.question, answer, input_mode in SPOKEN_MODES, register=sess.category)
+        ctx = self.context(sess.user_id)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_emo = self._start_emotion(pool, sess.user_id, ctx, q.question, answer, signals)
+            comm = self.english.evaluate(q.question, answer, input_mode in SPOKEN_MODES, register=sess.category)
+            emotion = self._finish_emotion(f_emo, sess.user_id, session_id, input_mode, signals)
         scores: dict[str, Any] = {k: None for k in db.TECH_DIMS}
         scores["overall_interview_performance"] = None
         scores.update({k: comm[k] for k in db.COMM_DIMS})
-        return self._finish(sess, self._spec(sess), self.context(sess.user_id), q, answer, input_mode, scores,
-                            None, comm, {})
+        return self._finish(sess, self._spec(sess), ctx, q, answer, input_mode, scores,
+                            None, comm, {"emotion": emotion} if emotion else {})
 
     # ------------------------------------------------------------------ Academy (teach -> explain back)
 
@@ -352,6 +384,53 @@ class Orchestrator:
                               technical, None, {"syntax_error": syntax_error})
         result["review"] = review
         return result
+
+    # ------------------------------------------------------------------ Confidence & emotions
+
+    def _start_emotion(self, pool, user_id: int, ctx, question: str, answer: str, signals: dict | None):
+        """Start the confidence coach in parallel with the evaluators (only when the learner opted in)."""
+        if signals is None:
+            return None
+        return pool.submit(self.coach.assess, ctx, question, answer, signals,
+                           db.emotion_history(user_id, 8), db.self_reports(user_id))
+
+    def _finish_emotion(self, future, user_id: int, session_id: int, input_mode: str, signals: dict | None) -> dict | None:
+        if future is None:
+            return None
+        try:
+            res = future.result()
+        except (LLMError, ValueError) as exc:  # coaching must never cost the learner their evaluation
+            log.warning("Confidence coach failed: %s", exc)
+            return None
+        res["check_id"] = db.add_emotion_check(user_id, session_id, input_mode, signals, res)
+        db.add_message(user_id, session_id, "assistant", f"💛 {res['mentor_message']}".strip(), ConfidenceCoach.name)
+        return res
+
+    def mentor_chat(self, user_id: int, session_id: int | None, text: str) -> tuple[int, dict]:
+        """One turn of the private mentoring chat. Creates the session on the first message."""
+        text = validate_answer(text)
+        if session_id is None:
+            session_id = db.create_session(user_id, "coach", job_role="", difficulty="", category="Mentor chat",
+                                           planned_questions=1000).id
+        sess = db.get_session(session_id)
+        if sess is None or sess.user_id != user_id:
+            raise ValidationError("This chat does not belong to you.")
+        db.add_message(user_id, session_id, "user", text)
+        msgs = [{"role": m.role, "content": m.content} for m in db.get_messages(session_id)]
+        out = self.coach.chat(self.context(user_id), msgs, db.emotion_history(user_id, 10), db.self_reports(user_id))
+        reply = out["reply"]
+        if out.get("technique") and out["technique"].get("steps"):
+            reply += "\n\n" + f"🧘 {out['technique']['name']}:\n" + "\n".join(f"{i}. {x}" for i, x in
+                                                                           enumerate(out["technique"]["steps"], 1))
+        db.add_message(user_id, session_id, "assistant", reply, ConfidenceCoach.name + "_chat")
+        return session_id, {**out, "reply_text": reply}
+
+    def confidence_journey(self, user_id: int) -> dict:
+        hist = [h for h in db.emotion_history(user_id, 60) if h["source"] != "checkin" or h["self_report"]]
+        if len(hist) < 2:
+            raise ValidationError("Answer a few questions with the confidence coach switched on first, so the plan "
+                                  "is based on real data.")
+        return self.coach.journey(self.context(user_id), hist, db.self_reports(user_id, 20))
 
     # ------------------------------------------------------------------ Video presence
 

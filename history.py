@@ -13,12 +13,13 @@ from components import page_header
 MODULES = {
     "": "🗂️ All conversations", "interview": "🎤 Live interviews", "hr": "🤝 HR interviews",
     "assessment": "🧪 Technical assessments", "english": "🗣️ English lab", "academy": "🎓 Academy lessons",
-    "coding": "🐍 Coding lab", "project": "📽️ Project pitches", "revision": "🔁 Revision",
+    "coding": "🐍 Coding lab", "project": "📽️ Project pitches", "revision": "🔁 Revision", "coach": "💛 Mentor chats",
 }
 AGENT_NAMES = {
     "technical_interviewer": "Technical Interviewer", "english_coach": "English Coach",
     "technical_mentor": "Technical Mentor", "hr_coach": "HR & Career Coach", "gap_analyst": "Gap Analyst",
     "progress_manager": "Progress Manager", "presence_coach": "📸 Video Presence Coach", "feedback": "📊 Feedback",
+    "confidence_coach": "💛 Confidence Coach", "confidence_coach_chat": "💛 Mentor",
 }
 
 
